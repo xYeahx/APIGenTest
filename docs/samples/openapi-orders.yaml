@@ -1,0 +1,23 @@
+openapi: 3.0.1
+info:
+  title: 示例订单服务
+  version: 1.0.0
+paths:
+  /api/orders:
+    get:
+      summary: 订单列表
+      description: 分页查询订单
+      tags: [订单]
+    post:
+      summary: 创建订单
+      description: 新增订单
+      tags: [订单]
+  /api/orders/{id}:
+    get:
+      summary: 订单详情
+      description: 按 ID 查询订单
+      tags: [订单]
+    delete:
+      summary: 取消订单
+      description: 按 ID 取消订单
+      tags: [订单]

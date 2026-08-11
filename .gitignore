@@ -1,0 +1,14 @@
+# 依赖与构建产物
+node_modules/
+dist/
+target/
+*.log
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 临时
+tmp_bcrypt/
+.DS_Store

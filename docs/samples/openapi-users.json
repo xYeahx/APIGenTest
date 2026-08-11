@@ -1,0 +1,22 @@
+{
+  "openapi": "3.0.1",
+  "info": { "title": "示例用户服务", "version": "1.0.0" },
+  "paths": {
+    "/api/login": {
+      "post": {
+        "summary": "用户登录",
+        "description": "用户名密码登录，返回 token",
+        "tags": ["认证"],
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/api/users": {
+      "get": { "summary": "用户列表", "description": "分页查询用户", "tags": ["用户"], "responses": { "200": { "description": "ok" } } },
+      "post": { "summary": "创建用户", "description": "新增一个用户", "tags": ["用户"], "responses": { "200": { "description": "ok" } } }
+    },
+    "/api/users/{id}": {
+      "get": { "summary": "用户详情", "description": "按 ID 查询用户", "tags": ["用户"], "responses": { "200": { "description": "ok" } } },
+      "delete": { "summary": "删除用户", "description": "按 ID 删除用户", "tags": ["用户"], "responses": { "200": { "description": "ok" } } }
+    }
+  }
+}
