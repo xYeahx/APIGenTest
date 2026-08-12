@@ -8,6 +8,7 @@ import com.apigentest.mapper.ApiInfoMapper;
 import com.apigentest.mapper.TestCaseMapper;
 import com.apigentest.service.ApiService;
 import com.apigentest.service.ProjectService;
+import com.apigentest.vo.ApiCoverageVO;
 import com.apigentest.vo.ApiInfoVO;
 import com.apigentest.vo.ImportResultVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -21,6 +22,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -50,7 +53,7 @@ public class ApiServiceImpl implements ApiService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ImportResultVO importFromFile(Long projectId, MultipartFile file) {
-        projectService.getOwnedProject(projectId);
+        projectService.requireWrite(projectId);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(400, "文件不能为空");
         }
@@ -65,7 +68,7 @@ public class ApiServiceImpl implements ApiService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ImportResultVO importFromUrl(Long projectId, String url) {
-        projectService.getOwnedProject(projectId);
+        projectService.requireWrite(projectId);
         if (url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) {
             throw new BusinessException(400, "文档地址必须是 http/https 链接");
         }
@@ -114,7 +117,7 @@ public class ApiServiceImpl implements ApiService {
 
     @Override
     public Page<ApiInfoVO> listApis(Long projectId, long page, long size, String keyword, String tag) {
-        projectService.getOwnedProject(projectId);
+        projectService.requireRead(projectId);
         LambdaQueryWrapper<ApiInfo> wrapper = new LambdaQueryWrapper<ApiInfo>()
                 .eq(ApiInfo::getProjectId, projectId)
                 .orderByAsc(ApiInfo::getPath);
@@ -127,8 +130,10 @@ public class ApiServiceImpl implements ApiService {
             wrapper.like(ApiInfo::getTags, tag);
         }
         Page<ApiInfo> apiPage = apiInfoMapper.selectPage(new Page<>(page, size), wrapper);
+        List<ApiInfo> records = apiPage.getRecords();
+        Map<Long, Long> caseCounts = loadCaseCounts(records.stream().map(ApiInfo::getId).toList());
         Page<ApiInfoVO> voPage = new Page<>(apiPage.getCurrent(), apiPage.getSize(), apiPage.getTotal());
-        voPage.setRecords(apiPage.getRecords().stream().map(this::toVO).toList());
+        voPage.setRecords(records.stream().map(a -> toVO(a, caseCounts)).toList());
         return voPage;
     }
 
@@ -138,8 +143,41 @@ public class ApiServiceImpl implements ApiService {
         if (api == null) {
             throw new BusinessException(404, "接口不存在");
         }
-        projectService.getOwnedProject(api.getProjectId());
-        return toVO(api);
+        projectService.requireRead(api.getProjectId());
+        ApiInfoVO vo = toVO(api, Map.of());
+        vo.setCaseCount(testCaseMapper.selectCount(
+                new LambdaQueryWrapper<TestCase>().eq(TestCase::getApiId, apiId)));
+        return vo;
+    }
+
+    @Override
+    public ApiCoverageVO coverage(Long projectId) {
+        projectService.requireRead(projectId);
+        List<ApiInfo> apis = apiInfoMapper.selectList(
+                new LambdaQueryWrapper<ApiInfo>().eq(ApiInfo::getProjectId, projectId));
+        Map<Long, Long> caseCounts = loadCaseCounts(apis.stream().map(ApiInfo::getId).toList());
+        ApiCoverageVO vo = new ApiCoverageVO();
+        vo.setTotalApis(apis.size());
+
+        Map<String, List<ApiInfo>> byTag = apis.stream().collect(Collectors.groupingBy(
+                a -> (a.getTags() == null || a.getTags().isBlank()) ? "未分组" : a.getTags()));
+        List<ApiCoverageVO.TagCoverage> tags = new ArrayList<>();
+        for (Map.Entry<String, List<ApiInfo>> e : byTag.entrySet()) {
+            ApiCoverageVO.TagCoverage tc = new ApiCoverageVO.TagCoverage();
+            tc.setTag(e.getKey());
+            tc.setTotal(e.getValue().size());
+            tc.setCovered(e.getValue().stream()
+                    .filter(a -> caseCounts.getOrDefault(a.getId(), 0L) > 0).count());
+            tc.setRate(calcRate(tc.getTotal(), tc.getCovered()));
+            tags.add(tc);
+        }
+        tags.sort(Comparator.comparing(ApiCoverageVO.TagCoverage::getTotal).reversed());
+        vo.setByTag(tags);
+
+        long covered = tags.stream().mapToLong(ApiCoverageVO.TagCoverage::getCovered).sum();
+        vo.setCoveredApis(covered);
+        vo.setRate(calcRate(apis.size(), covered));
+        return vo;
     }
 
     @Override
@@ -152,7 +190,7 @@ public class ApiServiceImpl implements ApiService {
         // 权限校验：按项目分组检查归属
         Map<Long, List<ApiInfo>> byProject = apis.stream()
                 .collect(Collectors.groupingBy(ApiInfo::getProjectId));
-        byProject.keySet().forEach(projectService::getOwnedProject);
+        byProject.keySet().forEach(projectService::requireWrite);
         // 先解除用例对接口的引用（外键 fk_case_api），再删除接口
         testCaseMapper.update(null, new LambdaUpdateWrapper<TestCase>()
                 .in(TestCase::getApiId, ids)
@@ -160,7 +198,26 @@ public class ApiServiceImpl implements ApiService {
         apiInfoMapper.deleteBatchIds(ids);
     }
 
-    private ApiInfoVO toVO(ApiInfo api) {
+    /** 统计指定接口集合中每个接口已关联的用例数 */
+    private Map<Long, Long> loadCaseCounts(List<Long> apiIds) {
+        if (apiIds.isEmpty()) {
+            return Map.of();
+        }
+        return testCaseMapper.selectList(new LambdaQueryWrapper<TestCase>()
+                        .in(TestCase::getApiId, apiIds)
+                        .select(TestCase::getApiId))
+                .stream()
+                .collect(Collectors.groupingBy(TestCase::getApiId, Collectors.counting()));
+    }
+
+    private double calcRate(long total, long covered) {
+        if (total == 0) {
+            return 0.0;
+        }
+        return Math.round(covered * 1000.0 / total) / 10.0;
+    }
+
+    private ApiInfoVO toVO(ApiInfo api, Map<Long, Long> caseCounts) {
         ApiInfoVO vo = new ApiInfoVO();
         vo.setId(api.getId());
         vo.setProjectId(api.getProjectId());
@@ -168,6 +225,7 @@ public class ApiServiceImpl implements ApiService {
         vo.setPath(api.getPath());
         vo.setSummary(api.getSummary());
         vo.setTags(api.getTags());
+        vo.setCaseCount(caseCounts.getOrDefault(api.getId(), 0L));
         vo.setSpec(api.getSpec());
         return vo;
     }

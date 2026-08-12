@@ -26,6 +26,14 @@ public class User {
 
     private String nickname;
 
+    /** 头像 URL（/uploads/...） */
+    private String avatarUrl;
+
+    private String email;
+
+    /** 联系方式（手机号 / 微信等） */
+    private String phone;
+
     /** 1 普通用户 / 2 管理员 */
     private Integer role;
 

@@ -1,11 +1,14 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { getExecution, listExecutionDetails, getExecutionDetail } from '../api/execution'
+import { getExecution, listExecutionDetails, getExecutionDetail, debugRunCase } from '../api/execution'
+import { getCaseDetail } from '../api/case'
+import { listEnvironments } from '../api/environment'
 import FailureAnalysisDialog from './FailureAnalysisDialog.vue'
 
 const props = defineProps({
   executionId: { type: Number, required: true },
   autoRefresh: { type: Boolean, default: false },
+  readonly: { type: Boolean, default: false },
 })
 
 const summary = ref(null)
@@ -18,6 +21,14 @@ const analysisVisible = ref(false)
 const analysisDetailId = ref(null)
 const currentDetail = ref(null)
 let timer = null
+
+// 调试重放
+const debugVisible = ref(false)
+const debugSaving = ref(false)
+const debugEnvs = ref([])
+const debugForm = ref({ environmentId: null, headers: '', queryParams: '', body: '', asserts: '' })
+const debugResult = ref(null)
+const debugCaseDetail = ref(null)
 
 const statusText = { 1: '通过', 2: '失败', 3: '异常' }
 const statusType = { 1: 'success', 2: 'danger', 3: 'warning' }
@@ -79,6 +90,57 @@ function onStatusChange() {
 function onPageChange(p) {
   detailQuery.value.page = p
   loadDetails()
+}
+
+async function openDebug() {
+  if (!currentDetail.value?.caseId) {
+    ElMessage.warning('该明细对应的用例已删除，无法调试')
+    return
+  }
+  debugVisible.value = true
+  debugResult.value = null
+  debugCaseDetail.value = null
+  try {
+    const [envs, detail] = await Promise.all([
+      listEnvironments(summary.value?.projectId),
+      getCaseDetail(currentDetail.value.caseId),
+    ])
+    debugEnvs.value = envs
+    debugCaseDetail.value = detail
+    debugForm.value = {
+      environmentId: envs[0]?.id || null,
+      headers: detail.headers || '',
+      queryParams: detail.queryParams || '',
+      body: detail.body || '',
+      asserts: detail.asserts || '',
+    }
+  } catch (e) {
+    // 拦截器已提示
+  }
+}
+
+async function handleDebugRun() {
+  if (!debugForm.value.environmentId) {
+    ElMessage.warning('请选择执行环境')
+    return
+  }
+  debugSaving.value = true
+  try {
+    debugResult.value = await debugRunCase(currentDetail.value.caseId, {
+      environmentId: debugForm.value.environmentId,
+      headers: debugForm.value.headers || null,
+      queryParams: debugForm.value.queryParams || null,
+      body: debugForm.value.body || null,
+      asserts: debugForm.value.asserts || null,
+    })
+  } finally {
+    debugSaving.value = false
+  }
+}
+
+function fmtDebugTime(t) {
+  if (!t) return '—'
+  return String(t).replace('T', ' ').substring(0, 19)
 }
 
 onMounted(refresh)
@@ -182,7 +244,8 @@ onBeforeUnmount(() => {
       </el-table-column>
       <el-table-column label="操作" width="120" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" link type="primary" @click="openDetail(row)">详情</el-button>`n          <el-button v-if="row.status !== 1" size="small" link type="warning" @click="openAnalysis(row)">归因</el-button>
+          <el-button size="small" link type="primary" @click="openDetail(row)">详情</el-button>
+          <el-button v-if="row.status !== 1 && !readonly" size="small" link type="warning" @click="openAnalysis(row)">归因</el-button>
         </template>
       </el-table-column>
       <template #empty>
@@ -224,8 +287,55 @@ onBeforeUnmount(() => {
           <h4 class="block-title">错误信息</h4>
           <pre class="detail-pre error">{{ currentDetail.errorMessage }}</pre>
         </template>
+      <template v-if="currentDetail && currentDetail.caseId && !readonly">
+        <div style="margin-top: 16px; display: flex; align-items: center; gap: 8px">
+          <el-divider style="margin: 0" />
+          <el-button type="warning" plain @click="openDebug">
+            <el-icon style="margin-right: 4px"><RefreshRight /></el-icon>调试重放（修改参数/断言后重跑）
+          </el-button>
+        </div>
+      </template>
       </div>
     </el-drawer>
+
+    <!-- 调试重放对话框 -->
+    <el-dialog v-model="debugVisible" title="单条用例调试重放" width="720px" top="5vh" destroy-on-close>
+      <el-form label-width="90px">
+        <el-form-item label="执行环境">
+          <el-select v-model="debugForm.environmentId" placeholder="选择环境" style="width: 100%">
+            <el-option v-for="e in debugEnvs" :key="e.id" :label="`${e.name}（${e.baseUrl || '未配置 Base URL'}）`" :value="e.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="请求头">
+          <el-input v-model="debugForm.headers" type="textarea" :rows="2" placeholder='JSON，如 {"Content-Type":"application/json"}' />
+        </el-form-item>
+        <el-form-item label="查询参数">
+          <el-input v-model="debugForm.queryParams" type="textarea" :rows="2" placeholder='JSON，如 {"page":1}' />
+        </el-form-item>
+        <el-form-item label="请求体">
+          <el-input v-model="debugForm.body" type="textarea" :rows="3" placeholder='JSON，如 {"username":"admin"}' />
+        </el-form-item>
+        <el-form-item label="断言">
+          <el-input v-model="debugForm.asserts" type="textarea" :rows="3" placeholder='数组，如 [{"type":"statusCode","expect":200}]' />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="debugVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="debugSaving" @click="handleDebugRun">立即重跑</el-button>
+      </template>
+
+      <div v-if="debugResult" style="margin-top: 4px; border-top: 1px solid #ebeef5; padding-top: 12px">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px">
+          <el-tag :type="statusType[debugResult.status]" size="small">{{ statusText[debugResult.status] }}</el-tag>
+          <span style="color: #909399; font-size: 12px">耗时 {{ fmtDuration(debugResult.durationMs) }} · 重试 {{ debugResult.retryCount }} 次 · {{ fmtDebugTime(debugResult.createdAt) }}</span>
+        </div>
+        <div v-if="debugResult.errorMessage" style="color: #f56c6c; font-size: 13px; margin-bottom: 8px">{{ debugResult.errorMessage }}</div>
+        <h4 class="block-title" style="margin-top: 4px">请求</h4>
+        <pre class="detail-pre">{{ debugResult.requestText || '（无请求记录）' }}</pre>
+        <h4 class="block-title">响应</h4>
+        <pre class="detail-pre">{{ debugResult.responseText || '（无响应）' }}</pre>
+      </div>
+    </el-dialog>
 
     <FailureAnalysisDialog v-if="analysisVisible" :detail-id="analysisDetailId" @close="analysisVisible = false" />
   </div>

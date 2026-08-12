@@ -6,10 +6,15 @@ import com.apigentest.dto.BatchStatusDTO;
 import com.apigentest.dto.CaseDTO;
 import com.apigentest.dto.CaseQuery;
 import com.apigentest.service.TestCaseService;
+import com.apigentest.vo.ImportResultVO;
 import com.apigentest.vo.CaseVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api")
@@ -45,6 +51,36 @@ public class TestCaseController {
         return Result.ok(testCaseService.list(projectId, query, page, size));
     }
 
+    /** 导出用例：format=json / postman / openapi，可选 caseIds 过滤 */
+    @GetMapping("/projects/{projectId}/cases/export")
+    public ResponseEntity<byte[]> export(@PathVariable Long projectId,
+                                         @RequestParam(required = false) String format,
+                                         @RequestParam(required = false) List<Long> caseIds) {
+        TestCaseService.ExportFile file = testCaseService.exportCases(projectId, format, caseIds);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.filename + "\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(file.content);
+    }
+
+    /** 导出 pytest + requests 脚本（text/plain 下载） */
+    @GetMapping("/projects/{projectId}/cases/export-pytest")
+    public ResponseEntity<String> exportPytest(@PathVariable Long projectId,
+                                               @RequestParam(required = false) Long environmentId,
+                                               @RequestParam(required = false) List<Long> caseIds) {
+        String script = testCaseService.exportPytest(projectId, environmentId, caseIds);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"test_cases.py\"")
+                .contentType(new MediaType("text", "plain", java.nio.charset.StandardCharsets.UTF_8))
+                .body(script);
+    }
+
+    /** 导入用例（multipart，支持 Postman Collection / 平台导出 JSON） */
+    @PostMapping(value = "/projects/{projectId}/cases/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<ImportResultVO> importCases(@PathVariable Long projectId,
+                                              @RequestParam("file") MultipartFile file) {
+        return Result.ok(testCaseService.importCases(projectId, file));
+    }
     @GetMapping("/cases/{id}")
     public Result<CaseVO> detail(@PathVariable Long id) {
         return Result.ok(testCaseService.getDetail(id));

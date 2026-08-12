@@ -20,6 +20,12 @@ const routes = [
         meta: { requiresAuth: true, title: '项目管理' },
       },
       {
+        path: 'profile',
+        name: 'profile',
+        component: () => import('../views/Profile.vue'),
+        meta: { requiresAuth: true, title: '个人中心' },
+      },
+      {
         path: 'settings',
         name: 'settings',
         component: () => import('../views/Settings.vue'),
@@ -68,7 +74,7 @@ router.beforeEach((to) => {
   }
   if (to.meta.adminOnly) {
     const userInfo = JSON.parse(localStorage.getItem('userInfo') || 'null')
-    if (!userInfo || userInfo.role !== 2) {
+    if (!userInfo || userInfo.role < 2) {
       return { path: '/dashboard' }
     }
   }

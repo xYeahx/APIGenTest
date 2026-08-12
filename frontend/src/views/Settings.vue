@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listConfigs, updateConfig, testLlmConfig, getCiToken, regenerateCiToken } from '../api/admin'
+import request from '../api/request'
 
 const configs = ref([])
 const loading = ref(false)
@@ -14,12 +15,19 @@ const ciLoading = ref(false)
 const newToken = ref(null)
 const tokenDialogVisible = ref(false)
 
+// Webhook 配置
+const webhookUrl = ref('')
+const webhookEnabled = ref(false)
+const webhookSaving = ref(false)
+const webhookTesting = ref(false)
+
 const keyMeta = {
   llm_api_key: { label: 'LLM API Key', desc: '大模型 API Key（加密存储，仅管理员可见）' },
   llm_model: { label: 'LLM 模型', desc: '例如 qwen-plus / deepseek-chat' },
   llm_base_url: { label: 'LLM Base URL', desc: 'OpenAI 兼容接口地址' },
   default_timeout: { label: '默认超时(ms)', desc: '执行用例默认超时时间' },
   default_retry: { label: '默认重试次数', desc: '用例失败重试次数' },
+  super_admin_invite_code: { label: '超管注册码', desc: '注册页填写该注册码的账号将注册为超级管理员（脱敏存储，可随时修改/清空）' },
 }
 
 const ciSample = `curl -X POST http://localhost:8081/api/ci/run \\
@@ -187,6 +195,36 @@ function sampleWithToken() {
       </ul>
     </el-card>
 
+    <el-card style="margin-top: 16px">
+      <template #header>Webhook 通知（仅管理员）</template>
+      <el-alert
+        type="info"
+        :closable="false"
+        title="执行完成 / 定时任务失败 / AI 生成完成时，向企业微信、钉钉或任意 HTTP 服务推送结果摘要"
+        style="margin-bottom: 16px"
+      />
+      <el-form label-width="120px" style="max-width: 720px">
+        <el-form-item label="Webhook URL">
+          <el-input
+            v-model="webhookUrl"
+            placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx 或钉钉机器人地址"
+          />
+        </el-form-item>
+        <el-form-item label="启用推送">
+          <el-switch v-model="webhookEnabled" />
+          <span style="color: #909399; font-size: 12px; margin-left: 8px">
+            {{ webhookEnabled ? '已启用，事件发生时将推送 JSON' : '已停用' }}
+          </span>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="webhookSaving" @click="handleWebhookSave">保存配置</el-button>
+          <el-button plain :loading="webhookTesting" @click="handleWebhookTest">发送测试消息</el-button>
+        </el-form-item>
+      </el-form>
+      <p style="color: #c0c4cc; font-size: 12px; margin-top: 4px">
+        推送 JSON 示例：{"event":"execution_finished","executionId":1,"projectId":1,"totalCases":10,"passed":9,"failed":1,"passRate":90.0}
+      </p>
+    </el-card>
     <el-dialog v-model="tokenDialogVisible" title="新 CI Token（仅显示一次）" width="560px" top="10vh">
       <el-alert
         type="warning"

@@ -6,6 +6,7 @@ import ExecutionResultView from '../../components/ExecutionResultView.vue'
 const props = defineProps({
   projectId: { type: Number, required: true },
   refreshKey: { type: Number, default: 0 },
+  readonly: { type: Boolean, default: false },
 })
 
 const rows = ref([])
@@ -141,7 +142,7 @@ onBeforeUnmount(() => {
       top="4vh"
       destroy-on-close
     >
-      <ExecutionResultView v-if="viewExecutionId" :execution-id="viewExecutionId" />
+      <ExecutionResultView v-if="viewExecutionId" :execution-id="viewExecutionId" :readonly="readonly" />
     </el-dialog>
   </div>
 </template>

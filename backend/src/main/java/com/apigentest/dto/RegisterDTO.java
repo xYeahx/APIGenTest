@@ -17,4 +17,8 @@ public class RegisterDTO {
 
     @Size(max = 50, message = "昵称最长 50 个字符")
     private String nickname;
+
+    /** 超级管理员注册码（选填，匹配 sys_config 中的 super_admin_invite_code 则注册为超级管理员） */
+    @Size(max = 64, message = "注册码最长 64 个字符")
+    private String inviteCode;
 }

@@ -1,6 +1,7 @@
 package com.apigentest.controller;
 
 import com.apigentest.common.Result;
+import com.apigentest.dto.DebugRunDTO;
 import com.apigentest.dto.RunRequestDTO;
 import com.apigentest.service.ExecutionService;
 import com.apigentest.vo.ExecutionDetailVO;
@@ -34,6 +35,11 @@ public class ExecutionController {
         return Result.ok(Map.of("executionId", executionId));
     }
 
+    /** 单条用例调试重放：同步执行并返回结果（不落执行记录） */
+    @PostMapping("/cases/{id}/debug")
+    public Result<ExecutionDetailVO> debug(@PathVariable Long id, @Valid @RequestBody DebugRunDTO dto) {
+        return Result.ok(executionService.debugRun(id, dto));
+    }
     /** 执行历史（分页，按项目筛选） */
     @GetMapping("/executions")
     public Result<Page<ExecutionSummaryVO>> list(@RequestParam Long projectId,

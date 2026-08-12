@@ -22,6 +22,16 @@ export const useAuthStore = defineStore('auth', {
     async register(payload) {
       return request.post('/auth/register', payload)
     },
+    async refreshUserInfo() {
+      const me = await request.get('/auth/me')
+      this.userInfo = { ...this.userInfo, ...me }
+      localStorage.setItem('userInfo', JSON.stringify(this.userInfo))
+      return me
+    },
+    updateUserInfo(patch) {
+      this.userInfo = { ...this.userInfo, ...patch }
+      localStorage.setItem('userInfo', JSON.stringify(this.userInfo))
+    },
     logout() {
       this.token = ''
       this.userInfo = null

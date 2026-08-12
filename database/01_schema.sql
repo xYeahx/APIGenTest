@@ -2,7 +2,7 @@
 -- APIGenTest 数据库建表脚本
 -- 对应《需求与设计文档》第二部分 2.1 核心表（10 张）
 -- 适用 MySQL 8.0+，字符集 utf8mb4
--- 版本 v0.1 | 2026-08-07
+-- 版本 v0.2 | 2026-08-11（新增 project_member 项目成员表，团队协作）
 -- =====================================================================
 
 CREATE DATABASE IF NOT EXISTS apigentest
@@ -19,7 +19,10 @@ CREATE TABLE IF NOT EXISTS `user` (
   username   VARCHAR(50)  NOT NULL COMMENT '登录名',
   password   VARCHAR(100) NOT NULL COMMENT '加密存储',
   nickname   VARCHAR(50)  DEFAULT NULL COMMENT '昵称',
-  role       TINYINT      NOT NULL DEFAULT 1 COMMENT '1 普通用户 / 2 管理员',
+  avatar_url VARCHAR(255) DEFAULT NULL COMMENT '头像URL',
+  email      VARCHAR(100) DEFAULT NULL COMMENT '邮箱',
+  phone      VARCHAR(50)  DEFAULT NULL COMMENT '联系方式',
+  role       TINYINT      NOT NULL DEFAULT 1 COMMENT '1 普通用户 / 2 管理员 / 3 超级管理员',
   status     TINYINT      NOT NULL DEFAULT 1 COMMENT '1 启用 / 0 禁用',
   created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -41,6 +44,23 @@ CREATE TABLE IF NOT EXISTS project (
   KEY idx_owner_id (owner_id),
   CONSTRAINT fk_project_owner FOREIGN KEY (owner_id) REFERENCES `user` (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目表';
+
+-- ---------------------------------------------------------------------
+-- 表12 project_member 项目成员表（团队协作：成员 / 只读成员）
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS project_member (
+  id         BIGINT   NOT NULL AUTO_INCREMENT COMMENT '成员ID',
+  project_id BIGINT   NOT NULL COMMENT '所属项目',
+  user_id    BIGINT   NOT NULL COMMENT '成员用户',
+  role       TINYINT  NOT NULL DEFAULT 1 COMMENT '1 成员 / 2 只读成员',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '加入时间',
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_project_user (project_id, user_id),
+  KEY idx_user_id (user_id),
+  CONSTRAINT fk_member_project FOREIGN KEY (project_id) REFERENCES project (id) ON DELETE CASCADE,
+  CONSTRAINT fk_member_user FOREIGN KEY (user_id) REFERENCES `user` (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目成员表';
 
 -- ---------------------------------------------------------------------
 -- 表3 api_info 接口表（OpenAPI 解析结果）

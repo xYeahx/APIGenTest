@@ -13,6 +13,12 @@ public class UserAdminVO {
 
     private String nickname;
 
+    private String avatarUrl;
+
+    private String email;
+
+    private String phone;
+
     /** 1 普通用户 / 2 管理员 */
     private Integer role;
 

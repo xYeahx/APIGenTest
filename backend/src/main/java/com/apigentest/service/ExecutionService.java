@@ -1,5 +1,6 @@
 package com.apigentest.service;
 
+import com.apigentest.dto.DebugRunDTO;
 import com.apigentest.dto.RunRequestDTO;
 import com.apigentest.vo.ExecutionDetailVO;
 import com.apigentest.vo.ExecutionSummaryVO;
@@ -14,6 +15,9 @@ public interface ExecutionService {
 
     /** 系统级触发（定时任务/CI）：跳过用户上下文校验，指定 triggerType 与操作人，完成后回调 */
     Long runBySystem(RunRequestDTO dto, int triggerType, Long operatorId, Consumer<Long> onFinished);
+
+    /** 单条用例调试重放：同步执行并返回结果（不落执行记录） */
+    ExecutionDetailVO debugRun(Long caseId, DebugRunDTO dto);
 
     /** 执行历史（按项目分页） */
     Page<ExecutionSummaryVO> list(Long projectId, long page, long size);

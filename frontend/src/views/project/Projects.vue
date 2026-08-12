@@ -22,6 +22,9 @@ const rules = {
   description: [{ max: 500, message: '描述最长 500 个字符', trigger: 'blur' }],
 }
 
+const roleText = (r) => ({ 0: '所有者', 1: '成员', 2: '只读' })[r] || '未知'
+const roleType = (r) => ({ 0: 'primary', 1: 'success', 2: 'info' })[r] || 'info'
+
 async function load() {
   loading.value = true
   try {
@@ -40,6 +43,10 @@ function openCreate() {
 }
 
 function openEdit(row) {
+  if (row.myRole !== 0) {
+    ElMessage.warning('仅项目所有者可编辑项目')
+    return
+  }
   editingId.value = row.id
   form.value = { name: row.name, description: row.description || '' }
   dialogVisible.value = true
@@ -64,6 +71,10 @@ async function handleSave() {
 }
 
 async function handleDelete(row) {
+  if (row.myRole !== 0) {
+    ElMessage.warning('仅项目所有者可删除项目')
+    return
+  }
   await ElMessageBox.confirm(`确定删除项目「${row.name}」吗？项目下的接口、用例将一并删除。`, '删除确认', {
     type: 'warning',
     confirmButtonText: '删除',
@@ -93,14 +104,24 @@ function goDetail(row) {
 
       <el-table v-loading="loading" :data="projects" @row-click="goDetail" style="cursor: pointer">
         <el-table-column prop="name" label="项目名" min-width="160" />
-        <el-table-column prop="description" label="描述" min-width="240" show-overflow-tooltip>
+        <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">{{ row.description || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="我的角色" width="100">
+          <template #default="{ row }">
+            <el-tag size="small" :type="roleType(row.myRole)">{{ roleText(row.myRole) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="ownerName" label="所有者" width="120">
+          <template #default="{ row }">{{ row.ownerName || '—' }}</template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建时间" width="180" />
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click.stop="openEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click.stop="handleDelete(row)">删除</el-button>
+            <template v-if="row.myRole === 0">
+              <el-button size="small" @click.stop="openEdit(row)">编辑</el-button>
+              <el-button size="small" type="danger" @click.stop="handleDelete(row)">删除</el-button>
+            </template>
           </template>
         </el-table-column>
         <template #empty>

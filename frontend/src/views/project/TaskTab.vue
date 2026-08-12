@@ -7,6 +7,7 @@ import { listCases } from '../../api/case'
 
 const props = defineProps({
   projectId: { type: Number, required: true },
+  readonly: { type: Boolean, default: false },
 })
 
 const tasks = ref([])
@@ -205,7 +206,7 @@ onMounted(() => {
     <div class="toolbar">
       <span style="color: #909399; font-size: 13px">按 cron 定时执行用例集，完成后站内信通知执行结果</span>
       <div style="flex: 1"></div>
-      <el-button type="primary" @click="openCreate">
+      <el-button v-if="!readonly" type="primary" @click="openCreate">
         <el-icon style="margin-right: 4px"><Plus /></el-icon>新建任务
       </el-button>
     </div>
@@ -242,9 +243,9 @@ onMounted(() => {
       </el-table-column>
       <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" link type="primary" @click="handleRun(row)">立即执行</el-button>
-          <el-button size="small" link @click="openEdit(row)">编辑</el-button>
-          <el-button size="small" link type="danger" @click="handleDelete(row)">删除</el-button>
+          <el-button v-if="!readonly" size="small" link type="primary" @click="handleRun(row)">立即执行</el-button>
+          <el-button v-if="!readonly" size="small" link @click="openEdit(row)">编辑</el-button>
+          <el-button v-if="!readonly" size="small" link type="danger" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
       <template #empty>

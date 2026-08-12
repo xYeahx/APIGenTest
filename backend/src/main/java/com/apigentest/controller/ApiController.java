@@ -4,6 +4,7 @@ import com.apigentest.common.Result;
 import com.apigentest.dto.BatchDeleteDTO;
 import com.apigentest.dto.ImportRequestDTO;
 import com.apigentest.service.ApiService;
+import com.apigentest.vo.ApiCoverageVO;
 import com.apigentest.vo.ApiInfoVO;
 import com.apigentest.vo.ImportResultVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -56,6 +57,10 @@ public class ApiController {
         return Result.ok(apiService.listApis(projectId, page, size, keyword, tag));
     }
 
+    @GetMapping("/projects/{projectId}/coverage")
+    public Result<ApiCoverageVO> coverage(@PathVariable Long projectId) {
+        return Result.ok(apiService.coverage(projectId));
+    }
     @GetMapping("/apis/{apiId}")
     public Result<ApiInfoVO> detail(@PathVariable Long apiId) {
         return Result.ok(apiService.getApiDetail(apiId));

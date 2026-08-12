@@ -1,0 +1,62 @@
+{
+  "openapi": "3.0.1",
+  "info": { "title": "DummyJSON 示例商城", "version": "1.0.0" },
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "summary": "用户登录",
+        "description": "用户名密码登录，返回 accessToken / refreshToken，可用于后续鉴权",
+        "tags": ["认证"],
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "summary": "获取当前用户",
+        "description": "携带 Bearer token 获取当前登录用户完整信息",
+        "tags": ["认证"],
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/products": {
+      "get": {
+        "summary": "商品列表",
+        "description": "分页返回全部商品，字段 products/total/skip/limit",
+        "tags": ["商品"],
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/products/search": {
+      "get": {
+        "summary": "搜索商品",
+        "description": "按关键词搜索商品，query 参数 q",
+        "tags": ["商品"],
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/products/{id}": {
+      "get": {
+        "summary": "商品详情",
+        "description": "按 ID 获取单个商品详情",
+        "tags": ["商品"],
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/products/categories": {
+      "get": {
+        "summary": "商品分类列表",
+        "description": "返回全部分类名称数组",
+        "tags": ["商品"],
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/carts": {
+      "get": {
+        "summary": "购物车列表",
+        "description": "分页返回购物车数据",
+        "tags": ["购物车"],
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  }
+}

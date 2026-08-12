@@ -2,6 +2,7 @@ package com.apigentest.controller;
 
 import com.apigentest.common.Result;
 import com.apigentest.dto.ResetPasswordDTO;
+import com.apigentest.dto.RoleDTO;
 import com.apigentest.dto.UserStatusDTO;
 import com.apigentest.service.AdminUserService;
 import com.apigentest.vo.UserAdminVO;
@@ -31,14 +32,22 @@ public class AdminUserController {
     public Result<Page<UserAdminVO>> list(@RequestParam(defaultValue = "1") long page,
                                           @RequestParam(defaultValue = "10") long size,
                                           @RequestParam(required = false) String keyword,
-                                          @RequestParam(required = false) Integer status) {
-        return Result.ok(adminUserService.list(page, size, keyword, status));
+                                          @RequestParam(required = false) Integer status,
+                                          @RequestParam(required = false) Integer role) {
+        return Result.ok(adminUserService.list(page, size, keyword, status, role));
     }
 
     /** 启用/禁用用户：body {"status": 0/1} */
     @PutMapping("/{id}/status")
     public Result<Void> updateStatus(@PathVariable Long id, @Valid @RequestBody UserStatusDTO dto) {
         adminUserService.updateStatus(id, dto.getStatus());
+        return Result.ok();
+    }
+
+    /** 变更角色（1 普通用户 / 2 管理员），仅超级管理员 */
+    @PutMapping("/{id}/role")
+    public Result<Void> updateRole(@PathVariable Long id, @RequestBody RoleDTO dto) {
+        adminUserService.updateRole(id, dto.getRole());
         return Result.ok();
     }
 

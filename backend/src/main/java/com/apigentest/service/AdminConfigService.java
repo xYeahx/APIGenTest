@@ -13,4 +13,7 @@ public interface AdminConfigService {
 
     /** 用当前已保存的 LLM 配置发一条最小请求，验证连通性；成功返回模型回复 */
     Map<String, String> testLlm();
+
+    /** 测试 Webhook 连通性（仅管理员），返回结果描述 */
+    String testWebhook();
 }

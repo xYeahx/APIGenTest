@@ -10,6 +10,7 @@ import com.apigentest.mapper.ApiInfoMapper;
 import com.apigentest.mapper.TestCaseMapper;
 import com.apigentest.service.GenerationService;
 import com.apigentest.service.ProjectService;
+import com.apigentest.service.WebhookService;
 import com.apigentest.service.llm.LlmClient;
 import com.apigentest.service.llm.LlmConfigService;
 import com.apigentest.service.llm.LlmPromptBuilder;
@@ -52,12 +53,13 @@ public class GenerationServiceImpl implements GenerationService {
     private final LlmConfigService llmConfigService;
     private final LlmPromptBuilder promptBuilder;
     private final GenerationValidator validator;
+    private final WebhookService webhookService;
     private final Executor generationExecutor;
 
     public GenerationServiceImpl(ApiInfoMapper apiInfoMapper, TestCaseMapper testCaseMapper,
                                  ProjectService projectService, LlmClient llmClient,
                                  LlmConfigService llmConfigService, LlmPromptBuilder promptBuilder,
-                                 GenerationValidator validator,
+                                 GenerationValidator validator, WebhookService webhookService,
                                  @Qualifier("generationExecutor") Executor generationExecutor) {
         this.apiInfoMapper = apiInfoMapper;
         this.testCaseMapper = testCaseMapper;
@@ -66,6 +68,7 @@ public class GenerationServiceImpl implements GenerationService {
         this.llmConfigService = llmConfigService;
         this.promptBuilder = promptBuilder;
         this.validator = validator;
+        this.webhookService = webhookService;
         this.generationExecutor = generationExecutor;
     }
 
@@ -83,7 +86,7 @@ public class GenerationServiceImpl implements GenerationService {
             throw new BusinessException(400, "请选择同一项目下的接口");
         }
         Long projectId = projects.iterator().next();
-        projectService.getOwnedProject(projectId);
+        projectService.requireWrite(projectId);
 
         GenerationTask task = new GenerationTask();
         task.setTaskId(UUID.randomUUID().toString());
@@ -133,6 +136,12 @@ public class GenerationServiceImpl implements GenerationService {
             } else {
                 task.setStatus("SUCCESS");
             }
+            try {
+                webhookService.sendGenerationFinished(task.getProjectId(), task.getStatus(),
+                        task.getSuccess(), task.getFailed(), task.getTotal());
+            } catch (Exception ex) {
+                log.warn("生成完成 Webhook 通知失败 taskId={}", task.getTaskId(), ex);
+            }
         } catch (Exception e) {
             log.error("生成任务异常", e);
             task.setError(e.getMessage());
@@ -165,7 +174,7 @@ public class GenerationServiceImpl implements GenerationService {
     @Override
     public GenerationTaskVO get(String taskId) {
         GenerationTask task = getTask(taskId);
-        projectService.getOwnedProject(task.getProjectId());
+        projectService.requireRead(task.getProjectId());
         GenerationTaskVO vo = new GenerationTaskVO();
         vo.setTaskId(task.getTaskId());
         vo.setStatus(task.getStatus());
@@ -185,7 +194,7 @@ public class GenerationServiceImpl implements GenerationService {
     @Override
     public ConfirmResultVO confirm(String taskId) {
         GenerationTask task = getTask(taskId);
-        projectService.getOwnedProject(task.getProjectId());
+        projectService.requireWrite(task.getProjectId());
         if ("CONFIRMED".equals(task.getStatus())) {
             throw new BusinessException(400, "该任务已确认入库，请勿重复操作");
         }

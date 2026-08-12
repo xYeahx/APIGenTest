@@ -9,6 +9,9 @@ import {
   deleteCase,
   batchStatusCases,
   batchDeleteCases,
+  importCasesFile,
+  exportCases,
+  exportPytest,
 } from '../../api/case'
 import { listApis } from '../../api/apiInfo'
 import ExecutionDialog from '../../components/ExecutionDialog.vue'
@@ -16,6 +19,7 @@ import ExecutionDialog from '../../components/ExecutionDialog.vue'
 const props = defineProps({
   projectId: { type: Number, required: true },
   refreshKey: { type: Number, default: 0 },
+  readonly: { type: Boolean, default: false },
 })
 const emit = defineEmits(['executed'])
 
@@ -35,6 +39,11 @@ const apiOptions = ref([])
 const executionVisible = ref(false)
 const executionScope = ref(null)
 const executionScopeText = ref('')
+
+// 导入导出
+const importInput = ref(null)
+const importing = ref(false)
+const exporting = ref(false)
 
 const scenarioTypes = [
   { value: 'normal', label: '正常' },
@@ -243,6 +252,78 @@ function search() {
   query.value.page = 1
   load()
 }
+
+function triggerImport() {
+  importInput.value?.click()
+}
+
+async function handleImportFile(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  importing.value = true
+  try {
+    const res = await importCasesFile(props.projectId, file)
+    ElMessage.success(`导入成功，共 ${res.total} 条用例`)
+    load()
+  } finally {
+    importing.value = false
+    e.target.value = ''
+  }
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+async function doExport(format) {
+  exporting.value = true
+  try {
+    const params = {}
+    if (selection.value.length) {
+      params.caseIds = selection.value.map((i) => i.id)
+    }
+    const blob = await exportCases(props.projectId, { ...params, format })
+    const ext = format === 'postman' ? 'postman_collection.json' : format === 'openapi' ? 'openapi.json' : 'json'
+    downloadBlob(blob, `cases-${props.projectId}.${ext}`)
+  } finally {
+    exporting.value = false
+  }
+}
+
+function handleExportCommand(cmd) {
+  if (cmd === 'pytest') {
+    doExportPytest()
+  } else {
+    doExport(cmd)
+  }
+}
+
+async function doExportPytest() {
+  const { value: baseUrl } = await ElMessageBox.prompt(
+    '请输入被测系统 Base URL（留空则脚本中 BASE_URL 为空，需自行填写）',
+    '导出 pytest 脚本',
+    { confirmButtonText: '导出', cancelButtonText: '取消', inputPlaceholder: '例如 https://api.example.com' },
+  ).catch(() => ({ value: null }))
+  if (baseUrl === null) return
+  exporting.value = true
+  try {
+    const params = {}
+    if (selection.value.length) {
+      params.caseIds = selection.value.map((i) => i.id)
+    }
+    const blob = await exportPytest(props.projectId, params)
+    downloadBlob(blob, 'test_cases.py')
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <template>
@@ -265,18 +346,35 @@ function search() {
       </el-select>
       <el-button type="primary" plain @click="search">搜索</el-button>
       <div style="flex: 1"></div>
-      <el-button plain :disabled="!selection.length" @click="handleBatchStatus(1)">批量启用</el-button>
-      <el-button plain :disabled="!selection.length" @click="handleBatchStatus(0)">批量禁用</el-button>
-      <el-button type="danger" plain :disabled="!selection.length" @click="handleBatchDelete">批量删除</el-button>
-      <el-button type="warning" plain :disabled="!selection.length" @click="openExecSelected">
+      <el-button v-if="!readonly" plain :disabled="!selection.length" @click="handleBatchStatus(1)">批量启用</el-button>
+      <el-button v-if="!readonly" plain :disabled="!selection.length" @click="handleBatchStatus(0)">批量禁用</el-button>
+      <el-button v-if="!readonly" type="danger" plain :disabled="!selection.length" @click="handleBatchDelete">批量删除</el-button>
+      <el-button v-if="!readonly" type="warning" plain :disabled="!selection.length" @click="openExecSelected">
         <el-icon style="margin-right: 4px"><VideoPlay /></el-icon>执行选中
       </el-button>
-      <el-button type="warning" plain @click="openExecAll">
+      <el-button v-if="!readonly" type="warning" plain @click="openExecAll">
         <el-icon style="margin-right: 4px"><CaretRight /></el-icon>执行全部
       </el-button>
-      <el-button type="primary" @click="openCreate">
+      <el-button v-if="!readonly" plain :loading="importing" @click="triggerImport">
+        <el-icon style="margin-right: 4px"><Upload /></el-icon>导入用例
+      </el-button>
+      <el-dropdown v-if="!readonly" trigger="click" :disabled="exporting" @command="handleExportCommand">
+        <el-button plain :loading="exporting">
+          导出<el-icon style="margin-left: 4px"><ArrowDown /></el-icon>
+        </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item command="json">平台 JSON（可再导入）</el-dropdown-item>
+            <el-dropdown-item command="postman">Postman Collection</el-dropdown-item>
+            <el-dropdown-item command="openapi">OpenAPI 文档</el-dropdown-item>
+            <el-dropdown-item command="pytest" divided>pytest 脚本（可独立运行）</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+      <el-button v-if="!readonly" type="primary" @click="openCreate">
         <el-icon style="margin-right: 4px"><Plus /></el-icon>新建用例
       </el-button>
+      <input ref="importInput" type="file" accept=".json" style="display: none" @change="handleImportFile" />
     </div>
 
     <el-table
@@ -319,12 +417,12 @@ function search() {
       </el-table-column>
       <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button size="small" link @click="openCopy(row)">复制</el-button>
-          <el-button size="small" link @click="toggleStatus(row)">
+          <el-button v-if="!readonly" size="small" link type="primary" @click="openEdit(row)">编辑</el-button>
+          <el-button v-if="!readonly" size="small" link @click="openCopy(row)">复制</el-button>
+          <el-button v-if="!readonly" size="small" link @click="toggleStatus(row)">
             {{ row.status === 1 ? '禁用' : '启用' }}
           </el-button>
-          <el-button size="small" link type="danger" @click="handleDelete(row)">删除</el-button>
+          <el-button v-if="!readonly" size="small" link type="danger" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
       <template #empty>

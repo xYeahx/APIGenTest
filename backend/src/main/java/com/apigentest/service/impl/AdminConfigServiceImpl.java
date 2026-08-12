@@ -8,6 +8,7 @@ import com.apigentest.mapper.SysConfigMapper;
 import com.apigentest.service.AdminConfigService;
 import com.apigentest.service.llm.LlmClient;
 import com.apigentest.service.llm.LlmConfigService;
+import com.apigentest.service.WebhookService;
 import com.apigentest.vo.SysConfigVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Service;
@@ -20,7 +21,8 @@ import java.util.Set;
 public class AdminConfigServiceImpl implements AdminConfigService {
 
     private static final Set<String> ALLOWED_KEYS = Set.of(
-            "llm_api_key", "llm_model", "llm_base_url", "default_timeout", "default_retry");
+            "llm_api_key", "llm_model", "llm_base_url", "default_timeout", "default_retry",
+            "webhook_url", "webhook_enabled", "super_admin_invite_code");
 
     private static final String TEST_SYSTEM_PROMPT = "你是一个连接测试助手。";
     private static final String TEST_USER_CONTENT = "请只回复四个字：连接成功。";
@@ -28,12 +30,15 @@ public class AdminConfigServiceImpl implements AdminConfigService {
     private final SysConfigMapper sysConfigMapper;
     private final LlmConfigService llmConfigService;
     private final LlmClient llmClient;
+    private final WebhookService webhookService;
 
     public AdminConfigServiceImpl(SysConfigMapper sysConfigMapper,
-                                  LlmConfigService llmConfigService, LlmClient llmClient) {
+                                  LlmConfigService llmConfigService, LlmClient llmClient,
+                                  WebhookService webhookService) {
         this.sysConfigMapper = sysConfigMapper;
         this.llmConfigService = llmConfigService;
         this.llmClient = llmClient;
+        this.webhookService = webhookService;
     }
 
     private static final Set<String> HIDDEN_KEYS = Set.of("ci_token", "ci_user_id");
@@ -54,6 +59,13 @@ public class AdminConfigServiceImpl implements AdminConfigService {
         if (!ALLOWED_KEYS.contains(key)) {
             throw new BusinessException(400, "不允许的配置项：" + key);
         }
+        if ("webhook_enabled".equals(key) && !"0".equals(value) && !"1".equals(value)) {
+            throw new BusinessException(400, "webhook_enabled 必须是 0 或 1");
+        }
+        if ("webhook_url".equals(key) && value != null && !value.isBlank()
+                && !value.startsWith("http://") && !value.startsWith("https://")) {
+            throw new BusinessException(400, "webhook_url 必须是 http/https 地址");
+        }
         if ("default_retry".equals(key) || "default_timeout".equals(key)) {
             try {
                 int v = Integer.parseInt(value);
@@ -69,7 +81,7 @@ public class AdminConfigServiceImpl implements AdminConfigService {
         if (config == null) {
             config = new SysConfig();
             config.setConfigKey(key);
-            config.setIsSecret("llm_api_key".equals(key) ? 1 : 0);
+            config.setIsSecret("llm_api_key".equals(key) || "super_admin_invite_code".equals(key) ? 1 : 0);
         }
         config.setConfigValue(value);
         if (config.getId() == null) {
@@ -99,10 +111,16 @@ public class AdminConfigServiceImpl implements AdminConfigService {
         }
     }
 
+    @Override
+    public String testWebhook() {
+        checkAdmin();
+        return webhookService.sendTest();
+    }
+
     private void checkAdmin() {
         Integer role = UserContext.getRole();
-        if (role == null || role != 2) {
-            throw new BusinessException(403, "仅管理员可操作系统配置");
+        if (role == null || role < 2) {
+            throw new BusinessException(403, "仅管理员或超级管理员可操作系统配置");
         }
     }
 

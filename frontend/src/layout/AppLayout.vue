@@ -70,6 +70,8 @@ function handleLogout() {
 
 onMounted(() => {
   loadUnread()
+  // 从服务端同步最新用户信息（角色变更后右上角/菜单即时生效）
+  authStore.refreshUserInfo().catch(() => {})
   timer = setInterval(loadUnread, 30000)
 })
 onUnmounted(() => {
@@ -93,11 +95,15 @@ onUnmounted(() => {
           <el-icon><Folder /></el-icon>
           <span>项目管理</span>
         </el-menu-item>
-        <el-menu-item v-if="authStore.userInfo?.role === 2" index="/admin/users">
+        <el-menu-item index="/profile">
+          <el-icon><User /></el-icon>
+          <span>个人中心</span>
+        </el-menu-item>
+        <el-menu-item v-if="authStore.userInfo?.role >= 2" index="/admin/users">
           <el-icon><User /></el-icon>
           <span>用户管理</span>
         </el-menu-item>
-        <el-menu-item v-if="authStore.userInfo?.role === 2" index="/settings">
+        <el-menu-item v-if="authStore.userInfo?.role >= 2" index="/settings">
           <el-icon><Setting /></el-icon>
           <span>系统设置</span>
         </el-menu-item>
@@ -142,8 +148,12 @@ onUnmounted(() => {
               </div>
             </div>
           </el-popover>
-          <el-tag v-if="authStore.userInfo?.role === 2" size="small" type="warning">管理员</el-tag>
-          <span class="user-nick">{{ authStore.nickname }}</span>
+          <el-tag v-if="authStore.userInfo?.role === 3" size="small" type="danger">超级管理员</el-tag>
+          <el-tag v-else-if="authStore.userInfo?.role === 2" size="small" type="warning">管理员</el-tag>
+          <el-avatar :size="28" :src="authStore.userInfo?.avatarUrl || undefined" class="header-avatar">
+            {{ (authStore.nickname || '?').slice(0, 1).toUpperCase() }}
+          </el-avatar>
+          <span class="user-nick" style="cursor: pointer" @click="router.push('/profile')">{{ authStore.nickname }}</span>
           <el-button size="small" @click="handleLogout">退出登录</el-button>
         </div>
       </el-header>
@@ -213,6 +223,12 @@ onUnmounted(() => {
   gap: 12px;
 }
 
+.header-avatar {
+  background: #ecf5ff;
+  color: #409eff;
+  font-size: 13px;
+  cursor: pointer;
+}
 .user-nick {
   font-size: 14px;
   color: #606266;

@@ -37,6 +37,12 @@ public class AdminConfigController {
         return Result.ok();
     }
 
+    /** 测试 Webhook 连通性（仅管理员） */
+    @PostMapping("/test-webhook")
+    public Result<Map<String, String>> testWebhook() {
+        return Result.ok(Map.of("message", adminConfigService.testWebhook()));
+    }
+
     /** 用当前已保存的 LLM 配置测试连通性（仅管理员） */
     @PostMapping("/test-llm")
     public Result<Map<String, String>> testLlm() {

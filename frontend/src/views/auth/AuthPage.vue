@@ -21,6 +21,7 @@ const form = reactive({
   password: '',
   nickname: '',
   confirmPassword: '',
+  inviteCode: '',
 })
 
 const rules = {
@@ -33,6 +34,7 @@ const rules = {
     { min: 6, max: 32, message: '密码长度 6-32', trigger: 'blur' },
   ],
   nickname: [{ max: 50, message: '昵称最长 50 个字符', trigger: 'blur' }],
+  inviteCode: [{ max: 64, message: '注册码最长 64 个字符', trigger: 'blur' }],
   confirmPassword: [
     {
       validator: (rule, value, callback) => {
@@ -60,6 +62,7 @@ async function handleSubmit() {
         username: form.username,
         password: form.password,
         nickname: form.nickname,
+        inviteCode: form.inviteCode || undefined,
       })
       ElMessage.success('注册成功，请登录')
       router.push('/login')
@@ -125,6 +128,14 @@ function switchMode() {
             type="password"
             show-password
             placeholder="请再次输入密码"
+          />
+        </el-form-item>
+        <el-form-item v-if="!isLogin" label="超级管理员注册码（选填）" prop="inviteCode">
+          <el-input
+            v-model="form.inviteCode"
+            type="password"
+            show-password
+            placeholder="填写正确注册码则注册为超级管理员，留空为普通用户"
           />
         </el-form-item>
         <el-button

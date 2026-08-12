@@ -2,6 +2,7 @@ package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
 import com.apigentest.common.UserContext;
+import com.apigentest.dto.DebugRunDTO;
 import com.apigentest.dto.RunRequestDTO;
 import com.apigentest.dto.ScopeDTO;
 import com.apigentest.entity.Environment;
@@ -13,6 +14,8 @@ import com.apigentest.mapper.ExecutionDetailMapper;
 import com.apigentest.mapper.ExecutionMapper;
 import com.apigentest.mapper.TestCaseMapper;
 import com.apigentest.service.ExecutionService;
+import com.apigentest.service.NotificationService;
+import com.apigentest.service.WebhookService;
 import com.apigentest.service.ProjectService;
 import com.apigentest.service.llm.LlmConfigService;
 import com.apigentest.vo.ExecutionDetailVO;
@@ -69,12 +72,15 @@ public class ExecutionServiceImpl implements ExecutionService {
     private final EnvironmentMapper environmentMapper;
     private final ProjectService projectService;
     private final LlmConfigService llmConfigService;
+    private final NotificationService notificationService;
+    private final WebhookService webhookService;
     private final ObjectMapper objectMapper;
     private final Executor executionExecutor;
 
     public ExecutionServiceImpl(ExecutionMapper executionMapper, ExecutionDetailMapper detailMapper,
                                 TestCaseMapper testCaseMapper, EnvironmentMapper environmentMapper,
                                 ProjectService projectService, LlmConfigService llmConfigService,
+                                NotificationService notificationService, WebhookService webhookService,
                                 ObjectMapper objectMapper,
                                 @Qualifier("executionExecutor") Executor executionExecutor) {
         this.executionMapper = executionMapper;
@@ -83,14 +89,17 @@ public class ExecutionServiceImpl implements ExecutionService {
         this.environmentMapper = environmentMapper;
         this.projectService = projectService;
         this.llmConfigService = llmConfigService;
+        this.notificationService = notificationService;
+        this.webhookService = webhookService;
         this.objectMapper = objectMapper;
         this.executionExecutor = executionExecutor;
     }
 
     @Override
     public Long run(RunRequestDTO dto) {
-        projectService.getOwnedProject(dto.getProjectId());
-        return doRun(dto, 1, UserContext.getUserId(), null);
+        projectService.requireWrite(dto.getProjectId());
+        Long operatorId = UserContext.getUserId();
+        return doRun(dto, 1, operatorId, executionId -> notifyExecutionFinished(executionId, operatorId));
     }
 
     /** 系统级触发（定时任务/CI）：跳过用户权限校验，完成后回调通知 */
@@ -170,6 +179,30 @@ public class ExecutionServiceImpl implements ExecutionService {
                     log.error("执行完成回调异常 executionId={}", executionId, ex);
                 }
             }
+            try {
+                webhookService.sendExecutionResult(executionMapper.selectById(executionId));
+            } catch (Exception ex) {
+                log.error("Webhook 通知异常 executionId={}", executionId, ex);
+            }
+        }
+    }
+
+    /** 手动执行完成站内通知（与定时任务通知一致） */
+    private void notifyExecutionFinished(Long executionId, Long operatorId) {
+        try {
+            Execution e = executionMapper.selectById(executionId);
+            if (e == null || operatorId == null) {
+                return;
+            }
+            int total = e.getTotalCases() == null ? 0 : e.getTotalCases();
+            int passed = e.getPassed() == null ? 0 : e.getPassed();
+            int failed = e.getFailed() == null ? 0 : e.getFailed();
+            double rate = total == 0 ? 0.0 : Math.round(passed * 1000.0 / total) / 10.0;
+            String title = "执行完成";
+            String content = String.format("共 %d 条用例，通过 %d，失败 %d，通过率 %.1f%%", total, passed, failed, rate);
+            notificationService.notify(operatorId, "execution", title, content, executionId);
+        } catch (Exception ex) {
+            log.error("执行完成通知发送失败 executionId={}", executionId, ex);
         }
     }
 
@@ -247,13 +280,94 @@ public class ExecutionServiceImpl implements ExecutionService {
     private ExecutionDetail executeCase(Long executionId, TestCase tc, Environment env,
                                         Map<String, String> envVars, Map<String, String> vars,
                                         RestClient restClient) {
-        int maxRetry = llmConfigService.getMaxRetry();
+        CaseRunResult result = runWithRetry(tc, env, envVars, vars, restClient);
         ExecutionDetail detail = new ExecutionDetail();
         detail.setExecutionId(executionId);
         detail.setCaseId(tc.getId());
+        detail.setStatus(result.status);
+        detail.setErrorMessage(result.errorMessage);
+        detail.setRequestText(result.requestText);
+        detail.setResponseText(result.responseText);
+        detail.setRetryCount(result.retryCount);
+        detail.setDurationMs(result.durationMs);
+        return detail;
+    }
+
+    /**
+     * 单条用例调试重放：同步执行、不落库，返回与执行明细一致的结果结构
+     * 支持覆盖请求头/查询参数/请求体/断言后再跑
+     */
+    @Override
+    public ExecutionDetailVO debugRun(Long caseId, DebugRunDTO dto) {
+        TestCase tc = testCaseMapper.selectById(caseId);
+        if (tc == null) {
+            throw new BusinessException(404, "用例不存在");
+        }
+        projectService.requireWrite(tc.getProjectId());
+        Environment env = environmentMapper.selectById(dto.getEnvironmentId());
+        if (env == null || !env.getProjectId().equals(tc.getProjectId())) {
+            throw new BusinessException(400, "执行环境不存在或不属于该项目");
+        }
+        TestCase effective = cloneForDebug(tc, dto);
+
+        Map<String, String> envVars = new HashMap<>();
+        parseEnvVars(env.getVariables(), envVars);
+        Map<String, String> vars = new HashMap<>();
+        if (env.getBaseUrl() != null && !env.getBaseUrl().isBlank()) {
+            vars.put("baseUrl", env.getBaseUrl());
+        }
+        RestClient restClient = buildRestClient(llmConfigService.getDefaultTimeoutMs());
+        CaseRunResult result = runWithRetry(effective, env, envVars, vars, restClient);
+
+        ExecutionDetailVO vo = new ExecutionDetailVO();
+        vo.setCaseId(caseId);
+        vo.setCaseName(tc.getName());
+        vo.setMethod(effective.getMethod());
+        vo.setUrlTemplate(effective.getUrlTemplate());
+        vo.setStatus(result.status);
+        vo.setRequestText(result.requestText);
+        vo.setResponseText(result.responseText);
+        vo.setErrorMessage(result.errorMessage);
+        vo.setDurationMs(result.durationMs);
+        vo.setRetryCount(result.retryCount);
+        return vo;
+    }
+
+    /** 应用调试覆盖参数（仅覆盖非空字段） */
+    private TestCase cloneForDebug(TestCase tc, DebugRunDTO dto) {
+        TestCase c = new TestCase();
+        c.setId(tc.getId());
+        c.setProjectId(tc.getProjectId());
+        c.setApiId(tc.getApiId());
+        c.setName(tc.getName());
+        c.setScenarioType(tc.getScenarioType());
+        c.setMethod(tc.getMethod());
+        c.setUrlTemplate(tc.getUrlTemplate());
+        c.setHeaders(notBlank(dto.getHeaders()) ? dto.getHeaders() : tc.getHeaders());
+        c.setQueryParams(notBlank(dto.getQueryParams()) ? dto.getQueryParams() : tc.getQueryParams());
+        c.setBody(notBlank(dto.getBody()) ? dto.getBody() : tc.getBody());
+        c.setAsserts(notBlank(dto.getAsserts()) ? dto.getAsserts() : tc.getAsserts());
+        c.setPreCaseId(tc.getPreCaseId());
+        c.setExtractVars(tc.getExtractVars());
+        c.setStatus(tc.getStatus());
+        return c;
+    }
+
+    private boolean notBlank(String s) {
+        return s != null && !s.isBlank();
+    }
+
+    /** 带重试的单用例执行（不落库），返回最终结果 */
+    private CaseRunResult runWithRetry(TestCase tc, Environment env,
+                                       Map<String, String> envVars, Map<String, String> vars,
+                                       RestClient restClient) {
+        int maxRetry = llmConfigService.getMaxRetry();
         long start = System.currentTimeMillis();
         int finalStatus = 3; // 默认异常
         String finalError = null;
+        String requestText = null;
+        String responseText = null;
+        int retryCount = 0;
         for (int attempt = 0; attempt <= maxRetry; attempt++) {
             AttemptResult r;
             try {
@@ -262,17 +376,14 @@ public class ExecutionServiceImpl implements ExecutionService {
                 r = new AttemptResult(0, null, e.requestText, new HashMap<>(), e.errorMessage);
             } catch (BusinessException e) {
                 // 用例本身配置问题（如环境缺 baseUrl），无需重试
-                detail.setRequestText(e.getMessage());
-                detail.setRetryCount(attempt);
-                detail.setErrorMessage(e.getMessage());
-                detail.setDurationMs(System.currentTimeMillis() - start);
-                return detail;
+                return new CaseRunResult(3, e.getMessage(), e.getMessage(), null, attempt,
+                        System.currentTimeMillis() - start);
             } catch (Exception e) {
                 r = new AttemptResult(0, null, null, new HashMap<>(), "请求异常：" + e.getMessage());
             }
-            detail.setRequestText(truncateText(r.requestText));
-            detail.setResponseText(truncateText(r.responseBody));
-            detail.setRetryCount(attempt);
+            requestText = truncateText(r.requestText);
+            responseText = truncateText(r.responseBody);
+            retryCount = attempt;
             if (r.errorMessage != null) {
                 finalError = r.errorMessage;
                 continue;
@@ -287,10 +398,8 @@ public class ExecutionServiceImpl implements ExecutionService {
             finalError = String.join("；", assertErrors);
             finalStatus = 2;
         }
-        detail.setStatus(finalStatus);
-        detail.setErrorMessage(finalError);
-        detail.setDurationMs(System.currentTimeMillis() - start);
-        return detail;
+        return new CaseRunResult(finalStatus, finalError, requestText, responseText, retryCount,
+                System.currentTimeMillis() - start);
     }
 
     /** 单次尝试：变量替换 -> 拼装请求 -> 发送 -> 返回状态码与响应体 */
@@ -540,7 +649,7 @@ public class ExecutionServiceImpl implements ExecutionService {
 
     @Override
     public Page<ExecutionSummaryVO> list(Long projectId, long page, long size) {
-        projectService.getOwnedProject(projectId);
+        projectService.requireRead(projectId);
         Page<Execution> executionPage = executionMapper.selectPage(new Page<>(page, size),
                 new LambdaQueryWrapper<Execution>()
                         .eq(Execution::getProjectId, projectId)
@@ -592,7 +701,7 @@ public class ExecutionServiceImpl implements ExecutionService {
         if (execution == null) {
             throw new BusinessException(404, "执行记录不存在");
         }
-        projectService.getOwnedProject(execution.getProjectId());
+        projectService.requireRead(execution.getProjectId());
         return execution;
     }
 
@@ -654,6 +763,26 @@ public class ExecutionServiceImpl implements ExecutionService {
             this.requestText = requestText;
             this.headers = headers;
             this.errorMessage = errorMessage;
+        }
+    }
+
+    /** 单用例执行结果（带重试后的最终状态） */
+    private static class CaseRunResult {
+        final int status;
+        final String errorMessage;
+        final String requestText;
+        final String responseText;
+        final int retryCount;
+        final long durationMs;
+
+        CaseRunResult(int status, String errorMessage, String requestText, String responseText,
+                      int retryCount, long durationMs) {
+            this.status = status;
+            this.errorMessage = errorMessage;
+            this.requestText = requestText;
+            this.responseText = responseText;
+            this.retryCount = retryCount;
+            this.durationMs = durationMs;
         }
     }
 }

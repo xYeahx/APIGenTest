@@ -12,6 +12,11 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true,
       },
+      // 头像等静态资源
+      '/uploads': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
     },
   },
 })

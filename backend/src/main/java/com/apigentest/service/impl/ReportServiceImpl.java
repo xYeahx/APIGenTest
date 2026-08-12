@@ -61,7 +61,7 @@ public class ReportServiceImpl implements ReportService {
 
     @Override
     public TrendVO getTrend(Long projectId, Integer limit) {
-        projectService.getOwnedProject(projectId);
+        projectService.requireRead(projectId);
         int n = (limit == null || limit <= 0) ? DEFAULT_TREND_LIMIT : Math.min(limit, MAX_TREND_LIMIT);
         List<Execution> executions = executionMapper.selectList(
                 new LambdaQueryWrapper<Execution>()

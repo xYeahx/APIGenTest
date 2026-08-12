@@ -12,4 +12,5 @@ export const importApiUrl = (projectId, url) => request.post(`/projects/${projec
 
 export const listApis = (projectId, params) => request.get(`/projects/${projectId}/apis`, { params })
 export const getApiDetail = (apiId) => request.get(`/apis/${apiId}`)
+export const getApiCoverage = (projectId) => request.get(`/projects/${projectId}/coverage`)
 export const batchDeleteApis = (ids) => request.delete('/apis/batch', { data: { ids } })

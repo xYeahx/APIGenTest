@@ -1,10 +1,13 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.Roles;
 import com.apigentest.common.UserContext;
 import com.apigentest.entity.Project;
+import com.apigentest.entity.ProjectMember;
 import com.apigentest.entity.User;
 import com.apigentest.mapper.ProjectMapper;
+import com.apigentest.mapper.ProjectMemberMapper;
 import com.apigentest.mapper.UserMapper;
 import com.apigentest.service.AdminUserService;
 import com.apigentest.vo.UserAdminVO;
@@ -22,19 +25,31 @@ public class AdminUserServiceImpl implements AdminUserService {
 
     private final UserMapper userMapper;
     private final ProjectMapper projectMapper;
+    private final ProjectMemberMapper memberMapper;
     private final BCryptPasswordEncoder passwordEncoder;
 
-    public AdminUserServiceImpl(UserMapper userMapper, ProjectMapper projectMapper,
+    public AdminUserServiceImpl(UserMapper userMapper, ProjectMapper projectMapper, ProjectMemberMapper memberMapper,
                                 BCryptPasswordEncoder passwordEncoder) {
         this.userMapper = userMapper;
+        this.memberMapper = memberMapper;
         this.projectMapper = projectMapper;
         this.passwordEncoder = passwordEncoder;
     }
 
     @Override
-    public Page<UserAdminVO> list(long page, long size, String keyword, Integer status) {
+    public Page<UserAdminVO> list(long page, long size, String keyword, Integer status, Integer role) {
         checkAdmin();
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        Integer myRole = UserContext.getRole();
+        if (Roles.isSuperAdmin(myRole)) {
+            // 超级管理员可见全部用户，可按角色筛选
+            if (role != null) {
+                wrapper.eq(User::getRole, role);
+            }
+        } else {
+            // 管理员仅可见普通用户
+            wrapper.eq(User::getRole, Roles.USER);
+        }
         if (keyword != null && !keyword.isBlank()) {
             wrapper.and(w -> w.like(User::getUsername, keyword.trim())
                     .or().like(User::getNickname, keyword.trim()));
@@ -52,50 +67,86 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     public void updateStatus(Long id, Integer status) {
         checkAdmin();
-        User user = requireUser(id);
-        if (user.getId().equals(UserContext.getUserId())) {
-            throw new BusinessException(400, "不能禁用/启用自己");
+        User target = requireUser(id);
+        ensureManageable(target);
+        if (status != null && status == 0
+                && target.getRole() != null && target.getRole() == Roles.SUPER_ADMIN
+                && enabledSuperAdminCount() <= 1) {
+            throw new BusinessException(400, "至少保留一个启用的超级管理员账号");
         }
-        if (status != null && status == 0) {
-            if (user.getRole() != null && user.getRole() == 2 && enabledAdminCount() <= 1) {
-                throw new BusinessException(400, "至少保留一个启用的管理员账号");
-            }
-        }
-        user.setStatus(status != null && status == 1 ? 1 : 0);
-        userMapper.updateById(user);
+        target.setStatus(status != null && status == 1 ? 1 : 0);
+        userMapper.updateById(target);
     }
 
     @Override
     public void resetPassword(Long id, String password) {
         checkAdmin();
-        User user = requireUser(id);
+        User target = requireUser(id);
+        ensureManageable(target);
         String pwd = password == null || password.isBlank() ? DEFAULT_PASSWORD : password.trim();
         if (pwd.length() < 6 || pwd.length() > 20) {
             throw new BusinessException(400, "密码长度需为 6~20 位");
         }
-        user.setPassword(passwordEncoder.encode(pwd));
-        userMapper.updateById(user);
+        target.setPassword(passwordEncoder.encode(pwd));
+        userMapper.updateById(target);
     }
 
     @Override
     public void delete(Long id) {
         checkAdmin();
-        User user = requireUser(id);
-        if (user.getId().equals(UserContext.getUserId())) {
-            throw new BusinessException(400, "不能删除自己");
-        }
+        User target = requireUser(id);
+        ensureManageable(target);
         Long projectCount = projectMapper.selectCount(
                 new LambdaQueryWrapper<Project>().eq(Project::getOwnerId, id));
         if (projectCount != null && projectCount > 0) {
             throw new BusinessException(400, "该用户名下存在 " + projectCount + " 个项目，请先删除项目");
         }
+        // 清理该用户参与的项目成员关系（外键 fk_member_user）
+        memberMapper.delete(new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getUserId, id));
         userMapper.deleteById(id);
     }
 
+    @Override
+    public void updateRole(Long id, Integer role) {
+        checkSuperAdmin();
+        User target = requireUser(id);
+        if (target.getId().equals(UserContext.getUserId())) {
+            throw new BusinessException(400, "不能修改自己的角色");
+        }
+        if (target.getRole() != null && target.getRole() == Roles.SUPER_ADMIN) {
+            throw new BusinessException(403, "不能修改超级管理员的角色");
+        }
+        if (role == null || (role != Roles.USER && role != Roles.ADMIN)) {
+            throw new BusinessException(400, "目标角色仅支持 1 普通用户 / 2 管理员");
+        }
+        target.setRole(role);
+        userMapper.updateById(target);
+    }
+
+    /** 入口校验：管理员及以上（>=2）可进入用户管理 */
     private void checkAdmin() {
         Integer role = UserContext.getRole();
-        if (role == null || role != 2) {
-            throw new BusinessException(403, "仅管理员可操作用户管理");
+        if (!Roles.isAdmin(role)) {
+            throw new BusinessException(403, "仅管理员或超级管理员可操作用户管理");
+        }
+    }
+
+    /** 仅超级管理员（==3）可进行角色分配 */
+    private void checkSuperAdmin() {
+        Integer role = UserContext.getRole();
+        if (!Roles.isSuperAdmin(role)) {
+            throw new BusinessException(403, "仅超级管理员可进行角色管理");
+        }
+    }
+
+    /** 层级保护：不能操作自己，不能操作同级或更高级别的账号 */
+    private void ensureManageable(User target) {
+        Integer myRole = UserContext.getRole();
+        if (target.getId().equals(UserContext.getUserId())) {
+            throw new BusinessException(400, "不能操作自己的账号");
+        }
+        if (target.getRole() != null && target.getRole() >= myRole) {
+            throw new BusinessException(403, "无权操作同级或更高级别的账号");
         }
     }
 
@@ -107,9 +158,9 @@ public class AdminUserServiceImpl implements AdminUserService {
         return user;
     }
 
-    private long enabledAdminCount() {
+    private long enabledSuperAdminCount() {
         return userMapper.selectCount(new LambdaQueryWrapper<User>()
-                .eq(User::getRole, 2).eq(User::getStatus, 1));
+                .eq(User::getRole, Roles.SUPER_ADMIN).eq(User::getStatus, 1));
     }
 
     private UserAdminVO toVO(User user) {
@@ -117,6 +168,9 @@ public class AdminUserServiceImpl implements AdminUserService {
         vo.setId(user.getId());
         vo.setUsername(user.getUsername());
         vo.setNickname(user.getNickname());
+        vo.setAvatarUrl(user.getAvatarUrl());
+        vo.setEmail(user.getEmail());
+        vo.setPhone(user.getPhone());
         vo.setRole(user.getRole());
         vo.setStatus(user.getStatus());
         vo.setCreatedAt(user.getCreatedAt());

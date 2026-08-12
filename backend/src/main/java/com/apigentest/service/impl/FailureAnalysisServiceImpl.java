@@ -75,7 +75,7 @@ public class FailureAnalysisServiceImpl implements FailureAnalysisService {
 
     @Override
     public FailureAnalysisVO analyze(Long detailId) {
-        ExecutionDetail detail = requireDetail(detailId);
+        ExecutionDetail detail = requireDetail(detailId, ProjectService.LEVEL_WRITE);
         if (detail.getStatus() == null || detail.getStatus() == 1) {
             throw new BusinessException(400, "仅失败或异常的用例支持归因分析");
         }
@@ -132,7 +132,7 @@ public class FailureAnalysisServiceImpl implements FailureAnalysisService {
 
     @Override
     public FailureAnalysisVO getByDetailId(Long detailId) {
-        ExecutionDetail detail = requireDetail(detailId);
+        ExecutionDetail detail = requireDetail(detailId, ProjectService.LEVEL_READ);
         FailureAnalysis fa = failureAnalysisMapper.selectOne(new LambdaQueryWrapper<FailureAnalysis>()
                 .eq(FailureAnalysis::getExecutionDetailId, detailId));
         if (fa == null) {
@@ -148,7 +148,7 @@ public class FailureAnalysisServiceImpl implements FailureAnalysisService {
         if (fa == null) {
             throw new BusinessException(404, "归因记录不存在");
         }
-        requireDetail(fa.getExecutionDetailId());
+        requireDetail(fa.getExecutionDetailId(), ProjectService.LEVEL_WRITE);
         fa.setConfirmed(1);
         failureAnalysisMapper.updateById(fa);
         ExecutionDetail detail = detailMapper.selectById(fa.getExecutionDetailId());
@@ -158,7 +158,7 @@ public class FailureAnalysisServiceImpl implements FailureAnalysisService {
 
     // ---------- 私有方法 ----------
 
-    private ExecutionDetail requireDetail(Long detailId) {
+    private ExecutionDetail requireDetail(Long detailId, int level) {
         ExecutionDetail detail = detailMapper.selectById(detailId);
         if (detail == null) {
             throw new BusinessException(404, "执行明细不存在");
@@ -167,7 +167,7 @@ public class FailureAnalysisServiceImpl implements FailureAnalysisService {
         if (execution == null) {
             throw new BusinessException(404, "执行记录不存在");
         }
-        projectService.getOwnedProject(execution.getProjectId());
+        projectService.requireAccess(execution.getProjectId(), level);
         return detail;
     }
 

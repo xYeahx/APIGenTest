@@ -9,3 +9,4 @@ export const listAdminUsers = (params) => request.get('/admin/users', { params }
 export const updateUserStatus = (id, status) => request.put(`/admin/users/${id}/status`, { status })
 export const resetUserPassword = (id, password) => request.put(`/admin/users/${id}/reset-password`, { password })
 export const deleteAdminUser = (id) => request.delete(`/admin/users/${id}`)
+export const updateUserRole = (id, role) => request.put(`/admin/users/${id}/role`, { role })

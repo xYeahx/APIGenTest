@@ -25,6 +25,10 @@ function redirectToLogin() {
 
 request.interceptors.response.use(
   (response) => {
+    // 文件下载（blob）直接返回原始数据，不走统一解包
+    if (response.config.responseType === 'blob') {
+      return response.data
+    }
     const res = response.data
     if (res.code === 0) {
       return res.data

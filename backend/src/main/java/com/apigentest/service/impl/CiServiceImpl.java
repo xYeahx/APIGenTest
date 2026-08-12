@@ -103,8 +103,8 @@ public class CiServiceImpl implements CiService {
 
     private void checkAdmin() {
         Integer role = UserContext.getRole();
-        if (role == null || role != 2) {
-            throw new BusinessException(403, "仅管理员可操作系统配置");
+        if (role == null || role < 2) {
+            throw new BusinessException(403, "仅管理员或超级管理员可操作系统配置");
         }
     }
 

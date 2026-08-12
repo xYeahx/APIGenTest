@@ -19,6 +19,7 @@ import com.apigentest.service.ExecutionService;
 import com.apigentest.service.NotificationService;
 import com.apigentest.service.ProjectService;
 import com.apigentest.service.ScheduledTaskService;
+import com.apigentest.service.WebhookService;
 import com.apigentest.vo.ScheduledTaskVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -62,13 +63,14 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
     private final ProjectService projectService;
     private final ExecutionService executionService;
     private final NotificationService notificationService;
+    private final WebhookService webhookService;
     private final ObjectMapper objectMapper;
 
     public ScheduledTaskServiceImpl(ScheduledTaskMapper taskMapper, EnvironmentMapper environmentMapper,
                                     ProjectMapper projectMapper, UserMapper userMapper,
                                     ExecutionMapper executionMapper, ProjectService projectService,
                                     ExecutionService executionService, NotificationService notificationService,
-                                    ObjectMapper objectMapper) {
+                                    WebhookService webhookService, ObjectMapper objectMapper) {
         this.taskMapper = taskMapper;
         this.environmentMapper = environmentMapper;
         this.projectMapper = projectMapper;
@@ -77,12 +79,13 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         this.projectService = projectService;
         this.executionService = executionService;
         this.notificationService = notificationService;
+        this.webhookService = webhookService;
         this.objectMapper = objectMapper;
     }
 
     @Override
     public Page<ScheduledTaskVO> list(Long projectId, long page, long size) {
-        projectService.getOwnedProject(projectId);
+        projectService.requireRead(projectId);
         Page<ScheduledTask> taskPage = taskMapper.selectPage(new Page<>(page, size),
                 new LambdaQueryWrapper<ScheduledTask>()
                         .eq(ScheduledTask::getProjectId, projectId)
@@ -98,7 +101,7 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ScheduledTaskVO create(Long projectId, ScheduledTaskDTO dto) {
-        projectService.getOwnedProject(projectId);
+        projectService.requireWrite(projectId);
         String cron = normalizeAndValidateCron(dto.getCron());
         requireEnv(projectId, dto.getEnvironmentId());
         ScheduledTask task = new ScheduledTask();
@@ -223,8 +226,13 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         // 先记录触发时间，避免失败后反复重试
         task.setLastRunAt(LocalDateTime.now());
         taskMapper.updateById(task);
-        return executionService.runBySystem(dto, 2, task.getCreatorId(),
-                executionId -> notifyFinished(task, executionId));
+        try {
+            return executionService.runBySystem(dto, 2, task.getCreatorId(),
+                    executionId -> notifyFinished(task, executionId));
+        } catch (Exception e) {
+            webhookService.sendTaskFailed(task.getId(), task.getName(), task.getProjectId(), e.getMessage());
+            throw e;
+        }
     }
 
     private void notifyFinished(ScheduledTask task, Long executionId) {
@@ -258,7 +266,7 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         if (task == null) {
             throw new BusinessException(404, "定时任务不存在");
         }
-        projectService.getOwnedProject(task.getProjectId());
+        projectService.requireWrite(task.getProjectId());
         return task;
     }
 

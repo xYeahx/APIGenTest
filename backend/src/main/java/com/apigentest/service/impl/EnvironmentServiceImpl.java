@@ -27,7 +27,7 @@ public class EnvironmentServiceImpl implements EnvironmentService {
 
     @Override
     public List<Environment> listByProject(Long projectId) {
-        projectService.getOwnedProject(projectId);
+        projectService.requireRead(projectId);
         return environmentMapper.selectList(
                 new LambdaQueryWrapper<Environment>()
                         .eq(Environment::getProjectId, projectId)
@@ -36,7 +36,7 @@ public class EnvironmentServiceImpl implements EnvironmentService {
 
     @Override
     public Environment create(Long projectId, EnvironmentDTO dto) {
-        projectService.getOwnedProject(projectId);
+        projectService.requireWrite(projectId);
         validateVariables(dto.getVariables());
         Environment env = new Environment();
         env.setProjectId(projectId);
@@ -69,7 +69,7 @@ public class EnvironmentServiceImpl implements EnvironmentService {
         if (env == null) {
             throw new BusinessException(404, "环境不存在");
         }
-        projectService.getOwnedProject(env.getProjectId());
+        projectService.requireWrite(env.getProjectId());
         return env;
     }
 

@@ -8,6 +8,7 @@ import FailureAnalysisDialog from '../../components/FailureAnalysisDialog.vue'
 const props = defineProps({
   projectId: { type: Number, required: true },
   refreshKey: { type: Number, default: 0 },
+  readonly: { type: Boolean, default: false },
 })
 
 const trend = ref(null)
@@ -19,9 +20,14 @@ const analysisVisible = ref(false)
 const analysisDetailId = ref(null)
 const loadingTrend = ref(false)
 const loadingReport = ref(false)
+let pollTimer = null
+let loadingList = false
 
 const chartEl = ref(null)
 let chart = null
+let chartObserver = null
+let chartObservedEl = null
+let chartPending = false
 
 const statusText = { 1: '通过', 2: '失败', 3: '异常' }
 
@@ -46,15 +52,36 @@ async function loadTrend() {
 }
 
 async function loadExecutions() {
-  const page = await listExecutions(props.projectId, { page: 1, size: 10 })
-  execRows.value = page.records
-  execTotal.value = page.total
-  if (page.records.length) {
-    selectedId.value = page.records[0].id
-    loadReport(selectedId.value)
-  } else {
-    selectedId.value = null
-    report.value = null
+  if (loadingList) return
+  loadingList = true
+  try {
+    const page = await listExecutions(props.projectId, { page: 1, size: 10 })
+    execRows.value = page.records
+    execTotal.value = page.total
+    if (page.records.length) {
+      selectedId.value = page.records[0].id
+      loadReport(selectedId.value)
+    } else {
+      selectedId.value = null
+      report.value = null
+    }
+    updatePolling()
+  } finally {
+    loadingList = false
+  }
+}
+
+/** 执行状态轮询：存在执行中任务时，定时刷新趋势与执行列表 */
+function updatePolling() {
+  const hasRunning = execRows.value.some((r) => r.status === 0)
+  if (hasRunning && !pollTimer) {
+    pollTimer = setInterval(() => {
+      loadTrend()
+      loadExecutions()
+    }, 3000)
+  } else if (!hasRunning && pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
   }
 }
 
@@ -77,9 +104,44 @@ function onSelect() {
   loadReport(selectedId.value)
 }
 
-function renderTrend() {
+function observeChartEl() {
   if (!chartEl.value) return
-  if (!chart) chart = echarts.init(chartEl.value)
+  if (!chartObserver) chartObserver = new ResizeObserver(onChartElResize)
+  if (chartObservedEl !== chartEl.value) {
+    if (chartObservedEl) chartObserver.unobserve(chartObservedEl)
+    chartObserver.observe(chartEl.value)
+    chartObservedEl = chartEl.value
+  }
+}
+
+function onChartElResize() {
+  if (!chartEl.value) return
+  const { clientWidth, clientHeight } = chartEl.value
+  if (clientWidth === 0 || clientHeight === 0) return
+  if (chartPending) {
+    chartPending = false
+    renderTrend()
+    return
+  }
+  chart?.resize()
+}
+
+function renderTrend() {
+  const el = chartEl.value
+  if (!el) return
+  const { clientWidth, clientHeight } = el
+  if (clientWidth === 0 || clientHeight === 0) {
+    // 容器处于隐藏状态（尺寸为 0），先不初始化 ECharts，
+    // 等待 ResizeObserver 检测到容器可见并恢复尺寸后再渲染。
+    chartPending = true
+    observeChartEl()
+    return
+  }
+  if (!chart || chart.getDom() !== el) {
+    if (chart) chart.dispose()
+    chart = echarts.init(el)
+  }
+  chartPending = false
   chart.resize()
   const points = trend.value?.points || []
   const x = points.map((p) => `#${p.executionId}\n${fmtTime(p.startedAt)}`)
@@ -134,7 +196,16 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
 })
 onBeforeUnmount(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
   window.removeEventListener('resize', handleResize)
+  if (chartObserver) {
+    chartObserver.disconnect()
+    chartObserver = null
+    chartObservedEl = null
+  }
   if (chart) {
     chart.dispose()
     chart = null
@@ -238,7 +309,7 @@ onBeforeUnmount(() => {
                 </el-table-column>
                 <el-table-column label="操作" width="90" fixed="right">
                   <template #default="{ row }">
-                    <el-button v-if="row.lastDetailId" size="small" link type="warning" @click="openAnalysis(row)">
+                    <el-button v-if="row.lastDetailId && !readonly" size="small" link type="warning" @click="openAnalysis(row)">
                       归因分析
                     </el-button>
                   </template>

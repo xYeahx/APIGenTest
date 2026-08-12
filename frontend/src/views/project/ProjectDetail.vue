@@ -1,13 +1,15 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getProject } from '../../api/project'
+import { listMembers, addMember, updateMember, removeMember } from '../../api/member'
 import {
   listApis,
   importApiFile,
   importApiUrl,
   getApiDetail,
+  getApiCoverage,
   batchDeleteApis,
 } from '../../api/apiInfo'
 import {
@@ -28,6 +30,21 @@ const router = useRouter()
 const projectId = Number(route.params.id)
 const activeTab = ref(route.query.tab || 'api')
 const projectInfo = ref(null)
+const members = ref([])
+const memberLoading = ref(false)
+const memberDialogVisible = ref(false)
+const editingMember = ref(null)
+const memberSaving = ref(false)
+const memberForm = ref({ username: '', role: 1 })
+
+const canWrite = computed(() => {
+  const role = projectInfo.value?.myRole
+  return role === 0 || role === 1
+})
+const canManage = computed(() => projectInfo.value?.myRole === 0)
+
+const memberRoleText = (r) => ({ 0: '所有者', 1: '成员', 2: '只读成员' })[r] || '未知'
+const memberRoleType = (r) => ({ 0: 'primary', 1: 'success', 2: 'info' })[r] || 'info'
 
 async function loadProject() {
   try {
@@ -45,6 +62,59 @@ const execVisible = ref(false)
 const execScope = ref(null)
 const execScopeText = ref('')
 
+// ---------- 团队协作（成员管理） ----------
+async function loadMembers() {
+  memberLoading.value = true
+  try {
+    members.value = await listMembers(projectId)
+  } finally {
+    memberLoading.value = false
+  }
+}
+
+function openMemberInvite() {
+  editingMember.value = null
+  memberForm.value = { username: '', role: 1 }
+  memberDialogVisible.value = true
+}
+
+function openMemberRole(row) {
+  editingMember.value = row
+  memberForm.value = { username: row.username, role: row.role }
+  memberDialogVisible.value = true
+}
+
+async function handleMemberSave() {
+  if (!editingMember.value && !memberForm.value.username.trim()) {
+    ElMessage.warning('请输入要邀请的用户名')
+    return
+  }
+  memberSaving.value = true
+  try {
+    if (editingMember.value) {
+      await updateMember(editingMember.value.id, { username: editingMember.value.username, role: memberForm.value.role })
+      ElMessage.success('角色已更新')
+    } else {
+      await addMember(projectId, memberForm.value)
+      ElMessage.success('已邀请成员')
+    }
+    memberDialogVisible.value = false
+    loadMembers()
+  } finally {
+    memberSaving.value = false
+  }
+}
+
+async function handleMemberRemove(row) {
+  await ElMessageBox.confirm(`确定移除成员「${row.username}」吗？`, '移除成员', {
+    type: 'warning',
+    confirmButtonText: '移除',
+    cancelButtonText: '取消',
+  })
+  await removeMember(row.id)
+  ElMessage.success('已移除')
+  loadMembers()
+}
 // ---------- 接口管理 ----------
 const apis = ref([])
 const apiTotal = ref(0)
@@ -61,9 +131,18 @@ const importing = ref(false)
 const detailVisible = ref(false)
 const detail = ref(null)
 const detailLoading = ref(false)
+const coverage = ref(null)
 
 const methodType = (m) =>
   ({ GET: '', POST: 'success', PUT: 'warning', DELETE: 'danger', PATCH: 'info' })[m] || 'info'
+
+async function loadCoverage() {
+  try {
+    coverage.value = await getApiCoverage(projectId)
+  } catch {
+    // 无权限等情况由拦截器提示
+  }
+}
 
 async function loadApis() {
   apiLoading.value = true
@@ -213,6 +292,32 @@ async function handleEnvDelete(row) {
   loadEnvs()
 }
 
+const mockBaseUrl = computed(() => `http://${window.location.hostname || 'localhost'}:8081/mock/${projectId}`)
+
+async function createMockEnv() {
+  const exists = envs.value.some((e) => e.baseUrl && e.baseUrl.includes(`/mock/${projectId}`))
+  if (exists) {
+    ElMessage.warning('已存在指向内置 Mock 服务的环境，可直接在「执行测试」中选择使用')
+    return
+  }
+  await createEnvironment(projectId, {
+    name: '内置 Mock 服务（零配置）',
+    baseUrl: mockBaseUrl.value,
+    variables: null,
+  })
+  ElMessage.success('已创建 Mock 环境：' + mockBaseUrl.value)
+  loadEnvs()
+}
+
+async function handleCopyMock() {
+  try {
+    await navigator.clipboard.writeText(mockBaseUrl.value)
+    ElMessage.success('已复制 Mock Base URL')
+  } catch {
+    ElMessage.error('复制失败，请手动选择复制')
+  }
+}
+
 function openGeneration() {
   if (!selection.value.length) {
     ElMessage.warning('请先勾选要生成用例的接口')
@@ -251,7 +356,9 @@ function prettySpec(spec) {
 
 onMounted(() => {
   loadApis()
+  loadCoverage()
   loadEnvs()
+  loadMembers()
 })
 </script>
 
@@ -264,6 +371,7 @@ onMounted(() => {
           <el-tag v-if="projectInfo" size="small" type="info" style="margin-left: 8px">{{ projectInfo.apiCount }} 接口</el-tag>
           <el-tag v-if="projectInfo" size="small" type="success" style="margin-left: 4px">{{ projectInfo.caseCount }} 用例</el-tag>
           <el-tag v-if="projectInfo" size="small" type="warning" style="margin-left: 4px">{{ projectInfo.envCount }} 环境</el-tag>
+          <el-tag v-if="projectInfo" size="small" :type="memberRoleType(projectInfo.myRole)" style="margin-left: 8px">{{ memberRoleText(projectInfo.myRole) }}</el-tag>
         </div>
       </template>
     </el-page-header>
@@ -271,6 +379,30 @@ onMounted(() => {
     <el-card>
       <el-tabs v-model="activeTab">
         <el-tab-pane label="接口管理" name="api">
+          <el-card v-if="coverage" shadow="never" style="margin-bottom: 12px">
+            <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+              <span style="font-weight: 600; font-size: 14px">接口覆盖率</span>
+              <span style="color: #909399; font-size: 13px">
+                已生成用例 <b style="color: #409eff">{{ coverage.coveredApis }}</b> / {{ coverage.totalApis }} 个接口
+              </span>
+              <el-progress
+                :percentage="coverage.rate"
+                :stroke-width="12"
+                style="width: 200px"
+                :color="coverage.rate >= 80 ? '#67c23a' : coverage.rate >= 50 ? '#e6a23c' : '#f56c6c'"
+              />
+              <div style="flex: 1"></div>
+              <el-tag v-if="coverage.totalApis === 0" size="small" type="info">未导入接口文档</el-tag>
+              <el-tag v-else :type="coverage.rate >= 80 ? 'success' : coverage.rate >= 50 ? 'warning' : 'danger'" size="small">
+                {{ coverage.rate }}%
+              </el-tag>
+            </div>
+            <div v-if="coverage.byTag && coverage.byTag.length" style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap">
+              <el-tag v-for="t in coverage.byTag" :key="t.tag" size="small" effect="plain">
+                {{ t.tag }}：{{ t.covered }}/{{ t.total }}
+              </el-tag>
+            </div>
+          </el-card>
           <div class="toolbar">
             <el-input
               v-model="query.keyword"
@@ -282,16 +414,16 @@ onMounted(() => {
             />
             <el-button type="primary" plain @click="search">搜索</el-button>
             <div style="flex: 1"></div>
-            <el-button type="danger" plain :disabled="!selection.length" @click="handleBatchDelete">
+            <el-button v-if="canWrite" type="danger" plain :disabled="!selection.length" @click="handleBatchDelete">
               批量删除
             </el-button>
-            <el-button type="success" :disabled="!selection.length" @click="openGeneration">
+            <el-button v-if="canWrite" type="success" :disabled="!selection.length" @click="openGeneration">
               <el-icon style="margin-right: 4px"><MagicStick /></el-icon>AI 生成用例
             </el-button>
-            <el-button type="warning" :disabled="!selection.length" @click="openExecByApis">
+            <el-button v-if="canWrite" type="warning" :disabled="!selection.length" @click="openExecByApis">
               <el-icon style="margin-right: 4px"><VideoPlay /></el-icon>执行接口用例
             </el-button>
-            <el-button type="primary" @click="importVisible = true">
+            <el-button v-if="canWrite" type="primary" @click="importVisible = true">
               <el-icon style="margin-right: 4px"><Upload /></el-icon>导入 OpenAPI
             </el-button>
           </div>
@@ -315,6 +447,12 @@ onMounted(() => {
             <el-table-column prop="tags" label="分组" width="140">
               <template #default="{ row }">{{ row.tags || '—' }}</template>
             </el-table-column>
+            <el-table-column label="用例覆盖" width="100">
+              <template #default="{ row }">
+                <el-tag v-if="row.caseCount > 0" size="small" type="success">{{ row.caseCount }} 条用例</el-tag>
+                <el-tag v-else size="small" type="info">无用例</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" width="90" fixed="right">
               <template #default="{ row }">
                 <el-button size="small" link type="primary" @click="showDetail(row)">详情</el-button>
@@ -337,29 +475,87 @@ onMounted(() => {
         </el-tab-pane>
 
         <el-tab-pane label="用例管理" name="cases">
-          <CaseTab :project-id="projectId" :refresh-key="casesRefreshKey" @executed="handleExecuted" />
+          <CaseTab :project-id="projectId" :refresh-key="casesRefreshKey" :readonly="!canWrite" @executed="handleExecuted" />
         </el-tab-pane>
 
         <el-tab-pane label="执行历史" name="exec">
-          <ExecutionHistory :project-id="projectId" :refresh-key="execHistoryRefreshKey" />
+          <ExecutionHistory :project-id="projectId" :refresh-key="execHistoryRefreshKey" :readonly="!canWrite" />
         </el-tab-pane>
 
         <el-tab-pane label="测试报告" name="report" lazy>
-          <ReportTab :project-id="projectId" :refresh-key="reportRefreshKey" />
+          <ReportTab :project-id="projectId" :refresh-key="reportRefreshKey" :readonly="!canWrite" />
         </el-tab-pane>
 
         <el-tab-pane label="定时任务" name="tasks">
-          <TaskTab :project-id="projectId" />
+          <TaskTab :project-id="projectId" :readonly="!canWrite" />
         </el-tab-pane>
 
+        <el-tab-pane label="项目成员" name="members">
+          <div class="toolbar">
+            <span style="color: #909399; font-size: 13px">成员可编辑与执行，只读成员仅可查看；仅所有者可管理成员</span>
+            <div style="flex: 1"></div>
+            <el-button v-if="canManage" type="primary" @click="openMemberInvite">
+              <el-icon style="margin-right: 4px"><Plus /></el-icon>邀请成员
+            </el-button>
+          </div>
+
+          <el-table v-loading="memberLoading" :data="members" style="margin-top: 12px">
+            <el-table-column label="成员" min-width="200">
+              <template #default="{ row }">
+                <div style="display: flex; align-items: center; gap: 10px">
+                  <el-avatar :size="30" :src="row.avatarUrl || undefined" style="background:#ecf5ff;color:#409eff;font-size:13px;flex-shrink:0">
+                    {{ (row.nickname || row.username || '?').slice(0, 1).toUpperCase() }}
+                  </el-avatar>
+                  <div style="min-width: 0">
+                    <div style="font-size:13px;color:#303133;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ row.nickname || row.username }}</div>
+                    <div style="font-size:12px;color:#909399">@{{ row.username }}</div>
+                  </div>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="email" label="邮箱" min-width="160">
+              <template #default="{ row }">{{ row.email || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="角色" width="110">
+              <template #default="{ row }">
+                <el-tag size="small" :type="memberRoleType(row.role)">{{ memberRoleText(row.role) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="createdAt" label="加入时间" width="180" />
+            <el-table-column v-if="canManage" label="操作" width="150" fixed="right">
+              <template #default="{ row }">
+                <template v-if="row.role !== 0">
+                  <el-button size="small" link @click="openMemberRole(row)">改角色</el-button>
+                  <el-button size="small" link type="danger" @click="handleMemberRemove(row)">移除</el-button>
+                </template>
+              </template>
+            </el-table-column>
+            <template #empty>
+              <el-empty description="暂无成员" />
+            </template>
+          </el-table>
+        </el-tab-pane>
         <el-tab-pane label="环境管理" name="env">
           <div class="toolbar">
             <span style="color: #909399; font-size: 13px">配置测试 / 预发环境与变量</span>
             <div style="flex: 1"></div>
-            <el-button type="primary" @click="openEnvCreate">
+            <el-button v-if="canWrite" type="primary" @click="openEnvCreate">
               <el-icon style="margin-right: 4px"><Plus /></el-icon>新建环境
             </el-button>
           </div>
+
+          <el-alert type="warning" :closable="false" style="margin-bottom: 12px">
+            <template #title>
+              <b>内置 Mock 服务</b>：无需真实被测系统即可演示执行闭环。点击下方按钮创建环境后，
+              执行测试时选择该环境，系统会基于导入的 OpenAPI schema 自动生成模拟响应。
+            </template>
+            <div style="margin-top: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+              <code style="background:#f7f9fc;padding:2px 8px;border-radius:4px">{{ mockBaseUrl }}</code>
+              <el-button size="small" @click="handleCopyMock">复制地址</el-button>
+              <el-button v-if="canWrite" size="small" type="primary" plain @click="createMockEnv">一键创建 Mock 环境</el-button>
+              <span style="color:#909399;font-size:12px">支持 ?mock_error=500、?mock_delay=2000、?mock_data={...}、?mock_empty=1 参数</span>
+            </div>
+          </el-alert>
 
           <el-table v-loading="envLoading" :data="envs" style="margin-top: 12px">
             <el-table-column prop="name" label="环境名" width="160" />
@@ -374,8 +570,8 @@ onMounted(() => {
             </el-table-column>
             <el-table-column label="操作" width="140" fixed="right">
               <template #default="{ row }">
-                <el-button size="small" @click="openEnvEdit(row)">编辑</el-button>
-                <el-button size="small" type="danger" @click="handleEnvDelete(row)">删除</el-button>
+                <el-button v-if="canWrite" size="small" @click="openEnvEdit(row)">编辑</el-button>
+                <el-button v-if="canWrite" size="small" type="danger" @click="handleEnvDelete(row)">删除</el-button>
               </template>
             </el-table-column>
             <template #empty>
@@ -462,6 +658,25 @@ onMounted(() => {
       @finished="handleExecuted"
     />
 
+    <!-- 成员邀请 / 角色修改对话框 -->
+    <el-dialog v-model="memberDialogVisible" :title="editingMember ? '修改成员角色' : '邀请成员'" width="440px">
+      <el-form label-width="80px">
+        <el-form-item label="用户名">
+          <el-input v-if="!editingMember" v-model="memberForm.username" placeholder="被邀请用户的登录名" maxlength="50" />
+          <el-input v-else :model-value="editingMember.username" disabled />
+        </el-form-item>
+        <el-form-item label="角色">
+          <el-radio-group v-model="memberForm.role">
+            <el-radio-button :value="1">成员</el-radio-button>
+            <el-radio-button :value="2">只读成员</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="memberDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="memberSaving" @click="handleMemberSave">保存</el-button>
+      </template>
+    </el-dialog>
     <!-- 环境编辑对话框 -->
     <el-dialog v-model="envDialogVisible" :title="editingEnvId ? '编辑环境' : '新建环境'" width="480px">
       <el-form ref="envFormRef" :model="envForm" :rules="envRules" label-width="90px">
