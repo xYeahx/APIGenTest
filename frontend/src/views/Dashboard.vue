@@ -130,8 +130,8 @@ function renderChart() {
         ].join('<br/>')
       },
     },
-    legend: { data: ['通过率 %', '耗时 ms'] },
-    grid: { left: 10, right: 10, top: 36, bottom: 8, containLabel: true },
+    legend: { data: ['通过率 %', '耗时 ms'], top: 0 },
+    grid: { left: 10, right: 10, top: 42, bottom: 8, containLabel: true },
     xAxis: {
       type: 'category',
       data: labels,

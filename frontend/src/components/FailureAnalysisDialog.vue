@@ -13,6 +13,7 @@ const loading = ref(false)
 const analyzing = ref(false)
 const confirming = ref(false)
 const analysis = ref(null)
+const correctedCategory = ref('')
 
 const categoryMap = {
   assert_error: { label: '断言问题', type: 'warning' },
@@ -25,8 +26,15 @@ async function load() {
   loading.value = true
   try {
     analysis.value = await getFailure(props.detailId)
+    syncCorrected()
   } finally {
     loading.value = false
+  }
+}
+
+function syncCorrected() {
+  if (analysis.value && analysis.value.confirmed !== 1) {
+    correctedCategory.value = analysis.value.category || ''
   }
 }
 
@@ -34,6 +42,7 @@ async function startAnalyze() {
   analyzing.value = true
   try {
     analysis.value = await analyzeFailure(props.detailId)
+    syncCorrected()
     ElMessage.success('归因分析完成')
   } catch (e) {
     // 错误提示由请求拦截器统一处理
@@ -45,8 +54,10 @@ async function startAnalyze() {
 async function handleConfirm() {
   confirming.value = true
   try {
-    analysis.value = await confirmFailure(analysis.value.id)
-    ElMessage.success('已确认归因结果')
+    const original = analysis.value.category
+    const category = correctedCategory.value || original
+    analysis.value = await confirmFailure(analysis.value.id, category)
+    ElMessage.success(category === original ? '已确认归因结果' : '已确认并记录修正分类')
   } finally {
     confirming.value = false
   }
@@ -97,6 +108,14 @@ onMounted(load)
             </el-tag>
             <el-tag v-if="analysis.confirmed === 1" type="success" size="small" style="margin-left: 8px">已确认</el-tag>
             <el-tag v-else type="info" size="small" style="margin-left: 8px">待确认</el-tag>
+            <el-tag
+              v-if="analysis.confirmed === 1 && analysis.confirmedCategory && analysis.confirmedCategory !== analysis.category"
+              type="warning"
+              size="small"
+              style="margin-left: 8px"
+            >
+              已修正为 {{ (categoryMap[analysis.confirmedCategory] || {}).label || analysis.confirmedCategory }}
+            </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="错误信息">
             <span style="color: #f56c6c">{{ analysis.errorMessage || '—' }}</span>
@@ -117,19 +136,24 @@ onMounted(load)
       <el-button v-if="!analysis && !analyzing" type="primary" :loading="analyzing" @click="startAnalyze">
         开始分析
       </el-button>
-      <el-button
-        v-else-if="analysis && analysis.confirmed !== 1"
-        type="success"
-        :loading="confirming"
-        @click="handleConfirm"
-      >
-        确认归因
-      </el-button>
+      <template v-else-if="analysis && analysis.confirmed !== 1">
+        <span class="correct-select">
+          确认分类：
+          <el-select v-model="correctedCategory" size="small" style="width: 150px; margin-right: 12px">
+            <el-option v-for="(v, k) in categoryMap" :key="k" :label="v.label" :value="k" />
+          </el-select>
+        </span>
+        <el-button type="success" :loading="confirming" @click="handleConfirm">确认归因</el-button>
+      </template>
     </template>
   </el-dialog>
 </template>
 
 <style scoped>
+.correct-select {
+  color: #606266;
+  font-size: 13px;
+}
 .analysis-box {
   background: #f7f9fc;
   border: 1px solid #e4e7ed;

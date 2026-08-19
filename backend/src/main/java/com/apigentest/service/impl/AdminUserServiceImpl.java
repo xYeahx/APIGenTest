@@ -10,6 +10,7 @@ import com.apigentest.mapper.ProjectMapper;
 import com.apigentest.mapper.ProjectMemberMapper;
 import com.apigentest.mapper.UserMapper;
 import com.apigentest.service.AdminUserService;
+import com.apigentest.service.AuditService;
 import com.apigentest.vo.UserAdminVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -27,13 +28,15 @@ public class AdminUserServiceImpl implements AdminUserService {
     private final ProjectMapper projectMapper;
     private final ProjectMemberMapper memberMapper;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final AuditService auditService;
 
     public AdminUserServiceImpl(UserMapper userMapper, ProjectMapper projectMapper, ProjectMemberMapper memberMapper,
-                                BCryptPasswordEncoder passwordEncoder) {
+                                BCryptPasswordEncoder passwordEncoder, AuditService auditService) {
         this.userMapper = userMapper;
         this.memberMapper = memberMapper;
         this.projectMapper = projectMapper;
         this.passwordEncoder = passwordEncoder;
+        this.auditService = auditService;
     }
 
     @Override
@@ -76,6 +79,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         }
         target.setStatus(status != null && status == 1 ? 1 : 0);
         userMapper.updateById(target);
+        auditService.log("UPDATE_USER_STATUS", "user:" + id,
+                "username=" + target.getUsername() + ", status=" + target.getStatus());
     }
 
     @Override
@@ -89,6 +94,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         }
         target.setPassword(passwordEncoder.encode(pwd));
         userMapper.updateById(target);
+        auditService.log("RESET_PASSWORD", "user:" + id,
+                "username=" + target.getUsername() + ", 重置为" + (DEFAULT_PASSWORD.equals(pwd) ? "默认密码" : "自定义密码"));
     }
 
     @Override
@@ -104,6 +111,7 @@ public class AdminUserServiceImpl implements AdminUserService {
         // 清理该用户参与的项目成员关系（外键 fk_member_user）
         memberMapper.delete(new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getUserId, id));
         userMapper.deleteById(id);
+        auditService.log("DELETE_USER", "user:" + id, "username=" + target.getUsername());
     }
 
     @Override
@@ -121,6 +129,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         }
         target.setRole(role);
         userMapper.updateById(target);
+        auditService.log("UPDATE_USER_ROLE", "user:" + id,
+                "username=" + target.getUsername() + ", role=" + role);
     }
 
     /** 入口校验：管理员及以上（>=2）可进入用户管理 */

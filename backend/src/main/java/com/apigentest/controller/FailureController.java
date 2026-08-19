@@ -1,12 +1,14 @@
 package com.apigentest.controller;
 
 import com.apigentest.common.Result;
+import com.apigentest.dto.ConfirmAnalysisDTO;
 import com.apigentest.service.FailureAnalysisService;
 import com.apigentest.vo.FailureAnalysisVO;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,9 +34,10 @@ public class FailureController {
         return Result.ok(failureAnalysisService.getByDetailId(detailId));
     }
 
-    /** 确认归因结果 */
+    /** 确认归因结果（可携带人工修正后的分类） */
     @PutMapping("/{id}/confirm")
-    public Result<FailureAnalysisVO> confirm(@PathVariable Long id) {
-        return Result.ok(failureAnalysisService.confirm(id));
+    public Result<FailureAnalysisVO> confirm(@PathVariable Long id,
+                                            @RequestBody(required = false) ConfirmAnalysisDTO dto) {
+        return Result.ok(failureAnalysisService.confirm(id, dto == null ? null : dto.getCategory()));
     }
 }

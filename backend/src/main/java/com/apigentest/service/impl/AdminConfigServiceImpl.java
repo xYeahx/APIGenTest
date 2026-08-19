@@ -1,14 +1,16 @@
 package com.apigentest.service.impl;
 
+import com.apigentest.common.AesUtil;
 import com.apigentest.common.BusinessException;
 import com.apigentest.common.LlmCallException;
 import com.apigentest.common.UserContext;
 import com.apigentest.entity.SysConfig;
 import com.apigentest.mapper.SysConfigMapper;
 import com.apigentest.service.AdminConfigService;
+import com.apigentest.service.AuditService;
+import com.apigentest.service.WebhookService;
 import com.apigentest.service.llm.LlmClient;
 import com.apigentest.service.llm.LlmConfigService;
-import com.apigentest.service.WebhookService;
 import com.apigentest.vo.SysConfigVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Service;
@@ -22,7 +24,8 @@ public class AdminConfigServiceImpl implements AdminConfigService {
 
     private static final Set<String> ALLOWED_KEYS = Set.of(
             "llm_api_key", "llm_model", "llm_base_url", "default_timeout", "default_retry",
-            "webhook_url", "webhook_enabled", "super_admin_invite_code");
+            "webhook_url", "webhook_enabled", "super_admin_invite_code", "llm_temperature");
+    private static final Set<String> SECRET_KEYS = Set.of("llm_api_key", "super_admin_invite_code");
 
     private static final String TEST_SYSTEM_PROMPT = "你是一个连接测试助手。";
     private static final String TEST_USER_CONTENT = "请只回复四个字：连接成功。";
@@ -31,14 +34,18 @@ public class AdminConfigServiceImpl implements AdminConfigService {
     private final LlmConfigService llmConfigService;
     private final LlmClient llmClient;
     private final WebhookService webhookService;
+    private final AesUtil aesUtil;
+    private final AuditService auditService;
 
     public AdminConfigServiceImpl(SysConfigMapper sysConfigMapper,
                                   LlmConfigService llmConfigService, LlmClient llmClient,
-                                  WebhookService webhookService) {
+                                  WebhookService webhookService, AesUtil aesUtil, AuditService auditService) {
         this.sysConfigMapper = sysConfigMapper;
         this.llmConfigService = llmConfigService;
         this.llmClient = llmClient;
         this.webhookService = webhookService;
+        this.aesUtil = aesUtil;
+        this.auditService = auditService;
     }
 
     private static final Set<String> HIDDEN_KEYS = Set.of("ci_token", "ci_user_id");
@@ -76,19 +83,27 @@ public class AdminConfigServiceImpl implements AdminConfigService {
                 throw new BusinessException(400, key + " 必须是正整数");
             }
         }
+        // LLM API Key 加密后落库（AES-GCM），避免明文存储
+        String stored = value;
+        if ("llm_api_key".equals(key) && value != null && !value.isBlank()) {
+            stored = aesUtil.encrypt(value);
+        }
         SysConfig config = sysConfigMapper.selectOne(
                 new LambdaQueryWrapper<SysConfig>().eq(SysConfig::getConfigKey, key));
         if (config == null) {
             config = new SysConfig();
             config.setConfigKey(key);
-            config.setIsSecret("llm_api_key".equals(key) || "super_admin_invite_code".equals(key) ? 1 : 0);
+            config.setIsSecret(SECRET_KEYS.contains(key) ? 1 : 0);
         }
-        config.setConfigValue(value);
+        config.setConfigValue(stored);
         if (config.getId() == null) {
             sysConfigMapper.insert(config);
         } else {
             sysConfigMapper.updateById(config);
         }
+        // 审计留痕：敏感配置不记录原文
+        String detail = SECRET_KEYS.contains(key) ? "已更新（敏感值不记录原文）" : "value=" + stored;
+        auditService.log("UPDATE_CONFIG", "config:" + key, detail);
     }
 
     @Override
@@ -101,7 +116,7 @@ public class AdminConfigServiceImpl implements AdminConfigService {
         String baseUrl = llmConfigService.getBaseUrl();
         String model = llmConfigService.getModel();
         try {
-            String reply = llmClient.chat(TEST_SYSTEM_PROMPT, TEST_USER_CONTENT, apiKey, baseUrl, model);
+            String reply = llmClient.chat(TEST_SYSTEM_PROMPT, TEST_USER_CONTENT, apiKey, baseUrl, model, llmConfigService.getTemperature());
             return Map.of(
                     "model", model,
                     "baseUrl", baseUrl,

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -52,6 +53,24 @@ public class TestCase {
 
     /** 1 启用 / 0 禁用 */
     private Integer status;
+
+    /** 1 手动 / 2 AI 生成（P2 埋点） */
+    private Integer source;
+
+    /** AI 生成任务ID */
+    private String genTaskId;
+
+    /** 生成模型 */
+    private String genModel;
+
+    /** 生成温度 */
+    private BigDecimal genTemperature;
+
+    /** 生成 Prompt 版本 */
+    private String genPromptVersion;
+
+    /** 生成实际重试次数 */
+    private Integer genRetryCount;
 
     private Long creatorId;
 

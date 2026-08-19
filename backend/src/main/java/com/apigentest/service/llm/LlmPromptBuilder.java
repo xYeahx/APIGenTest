@@ -10,6 +10,9 @@ public class LlmPromptBuilder {
 
     private static final int SPEC_MAX_LENGTH = 8000;
 
+    /** Prompt 版本号（P2-2 埋点，修改 Prompt 时递增） */
+    public static final String PROMPT_VERSION = "v1";
+
     public static final String SYSTEM_PROMPT = """
             你是接口自动化测试专家。根据给定的 OpenAPI 接口定义，为接口生成可执行的接口测试用例。
             要求：

@@ -38,13 +38,14 @@ public class LlmClient {
     /**
      * 发起对话补全请求，返回模型输出文本
      */
-    public String chat(String systemPrompt, String userContent, String apiKey, String baseUrl, String model) {
+    public String chat(String systemPrompt, String userContent, String apiKey, String baseUrl, String model,
+                        double temperature) {
         String url = baseUrl.endsWith("/chat/completions")
                 ? baseUrl
                 : baseUrl + "/chat/completions";
         Map<String, Object> body = Map.of(
                 "model", model,
-                "temperature", 0.3,
+                "temperature", temperature,
                 "messages", List.of(
                         Map.of("role", "system", "content", systemPrompt),
                         Map.of("role", "user", "content", userContent)));

@@ -9,6 +9,7 @@ import com.apigentest.entity.User;
 import com.apigentest.mapper.ProjectMapper;
 import com.apigentest.mapper.SysConfigMapper;
 import com.apigentest.mapper.UserMapper;
+import com.apigentest.service.AuditService;
 import com.apigentest.service.CiService;
 import com.apigentest.service.ExecutionService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -38,14 +39,16 @@ public class CiServiceImpl implements CiService {
     private final ExecutionService executionService;
     private final ProjectMapper projectMapper;
     private final UserMapper userMapper;
+    private final AuditService auditService;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public CiServiceImpl(SysConfigMapper sysConfigMapper, ExecutionService executionService,
-                         ProjectMapper projectMapper, UserMapper userMapper) {
+                         ProjectMapper projectMapper, UserMapper userMapper, AuditService auditService) {
         this.sysConfigMapper = sysConfigMapper;
         this.executionService = executionService;
         this.projectMapper = projectMapper;
         this.userMapper = userMapper;
+        this.auditService = auditService;
     }
 
     @Override
@@ -55,6 +58,7 @@ public class CiServiceImpl implements CiService {
         upsertConfig(CI_TOKEN_KEY, token, 1);
         upsertConfig(CI_USER_KEY, String.valueOf(UserContext.getUserId()), 0);
         log.info("CI Token 已重新生成，操作人={}", UserContext.getUsername());
+        auditService.log("REGENERATE_CI_TOKEN", "ci_token", "CI Token 已重新生成，旧 Token 立即失效");
         return token;
     }
 
@@ -68,7 +72,14 @@ public class CiServiceImpl implements CiService {
         info.put("tokenMasked", configured ? mask(token) : null);
         info.put("updatedAt", getConfigUpdatedAt(CI_TOKEN_KEY));
         String userIdStr = getConfigValue(CI_USER_KEY);
-        Long operatorId = userIdStr == null ? null : Long.valueOf(userIdStr);
+        Long operatorId = null;
+        if (userIdStr != null && !userIdStr.isBlank()) {
+            try {
+                operatorId = Long.valueOf(userIdStr);
+            } catch (NumberFormatException ignored) {
+                // 配置异常时按未配置处理
+            }
+        }
         String operatorName = null;
         if (operatorId != null) {
             User u = userMapper.selectById(operatorId);

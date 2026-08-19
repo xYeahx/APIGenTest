@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.Set;
 
 /**
@@ -93,7 +94,7 @@ public class FailureAnalysisServiceImpl implements FailureAnalysisService {
         AnalysisResult result = null;
         for (int attempt = 0; attempt <= maxRetry; attempt++) {
             try {
-                String content = llmClient.chat(SYSTEM_PROMPT, userContent, apiKey, baseUrl, model);
+                String content = llmClient.chat(SYSTEM_PROMPT, userContent, apiKey, baseUrl, model, llmConfigService.getTemperature());
                 result = parseAndValidate(content);
                 result.setModel(model);
                 break;
@@ -143,13 +144,23 @@ public class FailureAnalysisServiceImpl implements FailureAnalysisService {
     }
 
     @Override
-    public FailureAnalysisVO confirm(Long id) {
+    public FailureAnalysisVO confirm(Long id, String category) {
         FailureAnalysis fa = failureAnalysisMapper.selectById(id);
         if (fa == null) {
             throw new BusinessException(404, "归因记录不存在");
         }
         requireDetail(fa.getExecutionDetailId(), ProjectService.LEVEL_WRITE);
+        String confirmedCategory = fa.getCategory();
+        if (category != null && !category.isBlank()) {
+            String c = category.trim();
+            if (!CATEGORIES.contains(c)) {
+                throw new BusinessException(400, "修正分类仅支持 assert_error/data_error/env_error/real_defect");
+            }
+            confirmedCategory = c;
+        }
         fa.setConfirmed(1);
+        fa.setConfirmedCategory(confirmedCategory);
+        fa.setConfirmedAt(LocalDateTime.now());
         failureAnalysisMapper.updateById(fa);
         ExecutionDetail detail = detailMapper.selectById(fa.getExecutionDetailId());
         TestCase tc = detail == null || detail.getCaseId() == null ? null : testCaseMapper.selectById(detail.getCaseId());

@@ -19,4 +19,6 @@ public class LlmProperties {
     private int timeoutMs = 60000;
 
     private int maxRetry = 2;
+
+    private double temperature = 0.3;
 }

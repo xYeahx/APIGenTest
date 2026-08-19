@@ -30,6 +30,12 @@ public class FailureAnalysis {
     /** 0 待确认 / 1 已确认 */
     private Integer confirmed;
 
+    /** 人工确认/修正后的分类（NULL=未确认；与 category 相同=确认正确，不同=人工修正） */
+    private String confirmedCategory;
+
+    /** 确认时间 */
+    private LocalDateTime confirmedAt;
+
     private String llmModel;
 
     private LocalDateTime createdAt;

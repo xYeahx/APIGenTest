@@ -5,8 +5,10 @@ import com.apigentest.common.LlmCallException;
 import com.apigentest.common.UserContext;
 import com.apigentest.dto.GenerateRequestDTO;
 import com.apigentest.entity.ApiInfo;
+import com.apigentest.entity.GenerationRecord;
 import com.apigentest.entity.TestCase;
 import com.apigentest.mapper.ApiInfoMapper;
+import com.apigentest.mapper.GenerationRecordMapper;
 import com.apigentest.mapper.TestCaseMapper;
 import com.apigentest.service.GenerationService;
 import com.apigentest.service.ProjectService;
@@ -21,13 +23,17 @@ import com.apigentest.service.generation.GenerationTask;
 import com.apigentest.service.generation.GenerationValidationException;
 import com.apigentest.service.generation.GenerationValidator;
 import com.apigentest.vo.ConfirmResultVO;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.apigentest.vo.GenerationTaskVO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -55,12 +61,15 @@ public class GenerationServiceImpl implements GenerationService {
     private final GenerationValidator validator;
     private final WebhookService webhookService;
     private final Executor generationExecutor;
+    private final GenerationRecordMapper generationRecordMapper;
+    private final ObjectMapper objectMapper;
 
     public GenerationServiceImpl(ApiInfoMapper apiInfoMapper, TestCaseMapper testCaseMapper,
                                  ProjectService projectService, LlmClient llmClient,
                                  LlmConfigService llmConfigService, LlmPromptBuilder promptBuilder,
                                  GenerationValidator validator, WebhookService webhookService,
-                                 @Qualifier("generationExecutor") Executor generationExecutor) {
+                                 @Qualifier("generationExecutor") Executor generationExecutor,
+                                 GenerationRecordMapper generationRecordMapper, ObjectMapper objectMapper) {
         this.apiInfoMapper = apiInfoMapper;
         this.testCaseMapper = testCaseMapper;
         this.projectService = projectService;
@@ -70,6 +79,8 @@ public class GenerationServiceImpl implements GenerationService {
         this.validator = validator;
         this.webhookService = webhookService;
         this.generationExecutor = generationExecutor;
+        this.generationRecordMapper = generationRecordMapper;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -110,21 +121,28 @@ public class GenerationServiceImpl implements GenerationService {
             String model = llmConfigService.getModel();
             String baseUrl = llmConfigService.getBaseUrl();
             int maxRetry = llmConfigService.getMaxRetry();
+            double temperature = llmConfigService.getTemperature();
+            String promptVersion = LlmPromptBuilder.PROMPT_VERSION;
+            task.setModel(model);
+            task.setTemperature(temperature);
+            task.setPromptVersion(promptVersion);
+            task.setMaxRetry(maxRetry);
             for (ApiInfo api : apis) {
                 try {
-                    List<GeneratedCase> cases = generateForApi(api, task.getBusinessDesc(), apiKey, model, baseUrl, maxRetry);
-                    ApiGenerationResult result = new ApiGenerationResult();
-                    result.setApiId(api.getId());
-                    result.setCases(cases);
+                    ApiGenerationResult result = generateForApi(api, task.getBusinessDesc(), apiKey, model, baseUrl, maxRetry, temperature);
+                    result.setPromptVersion(promptVersion);
                     task.getResults().add(result);
                     task.setSuccess(task.getSuccess() + 1);
+                    saveRecord(task, result, null, model, temperature, promptVersion, maxRetry);
                 } catch (Exception e) {
                     log.warn("接口 {} 生成失败: {}", api.getId(), e.getMessage());
                     ApiGenerationFailure f = new ApiGenerationFailure();
                     f.setApiId(api.getId());
                     f.setError(e.getMessage());
+                    f.setAttempts(maxRetry + 1);
                     task.getFailures().add(f);
                     task.setFailed(task.getFailed() + 1);
+                    saveRecord(task, null, f, model, temperature, promptVersion, maxRetry);
                 } finally {
                     task.setDone(task.getDone() + 1);
                 }
@@ -149,8 +167,9 @@ public class GenerationServiceImpl implements GenerationService {
         }
     }
 
-    private List<GeneratedCase> generateForApi(ApiInfo api, String businessDesc,
-                                               String apiKey, String model, String baseUrl, int maxRetry) {
+    private ApiGenerationResult generateForApi(ApiInfo api, String businessDesc,
+                                               String apiKey, String model, String baseUrl, int maxRetry,
+                                               double temperature) {
         if (api.getSpec() == null || api.getSpec().isBlank()) {
             throw new BusinessException(400, "接口缺少 OpenAPI 定义，请重新导入文档");
         }
@@ -158,8 +177,15 @@ public class GenerationServiceImpl implements GenerationService {
         Exception last = null;
         for (int attempt = 0; attempt <= maxRetry; attempt++) {
             try {
-                String content = llmClient.chat(LlmPromptBuilder.SYSTEM_PROMPT, userContent, apiKey, baseUrl, model);
-                return validator.parseAndValidate(content, api.getId());
+                String content = llmClient.chat(LlmPromptBuilder.SYSTEM_PROMPT, userContent, apiKey, baseUrl, model, temperature);
+                List<GeneratedCase> cases = validator.parseAndValidate(content, api.getId());
+                ApiGenerationResult result = new ApiGenerationResult();
+                result.setApiId(api.getId());
+                result.setCases(cases);
+                result.setModel(model);
+                result.setTemperature(temperature);
+                result.setAttempts(attempt + 1);
+                return result;
             } catch (GenerationValidationException e) {
                 last = e;
                 userContent += "\n\n上次输出校验未通过：" + e.getMessage() + "。请修正后重新只输出 JSON。";
@@ -217,16 +243,84 @@ public class GenerationServiceImpl implements GenerationService {
                 tc.setAsserts(gc.getAsserts());
                 tc.setExtractVars(gc.getExtractVars());
                 tc.setStatus(1);
+                tc.setSource(2);
+                tc.setGenTaskId(task.getTaskId());
+                tc.setGenModel(result.getModel());
+                tc.setGenTemperature(BigDecimal.valueOf(result.getTemperature()));
+                tc.setGenPromptVersion(result.getPromptVersion());
+                tc.setGenRetryCount(Math.max(0, result.getAttempts() - 1));
                 tc.setCreatorId(UserContext.getUserId());
                 testCaseMapper.insert(tc);
                 saved++;
             }
         }
         task.setStatus("CONFIRMED");
+        updateRecordsOnConfirm(task);
         ConfirmResultVO vo = new ConfirmResultVO();
         vo.setProjectId(task.getProjectId());
         vo.setSaved(saved);
         return vo;
+    }
+
+    private void saveRecord(GenerationTask task, ApiGenerationResult result, ApiGenerationFailure failure,
+                           String model, double temperature, String promptVersion, int maxRetry) {
+        GenerationRecord record = new GenerationRecord();
+        record.setTaskId(task.getTaskId());
+        record.setProjectId(task.getProjectId());
+        record.setApiId(result != null ? result.getApiId() : failure.getApiId());
+        record.setModel(model);
+        record.setTemperature(BigDecimal.valueOf(temperature));
+        record.setPromptVersion(promptVersion);
+        record.setMaxRetry(maxRetry);
+        record.setRetryUsed((result != null ? result.getAttempts() : failure.getAttempts()) - 1);
+        record.setBusinessDesc(truncate(task.getBusinessDesc(), 500));
+        record.setCreatedBy(UserContext.getUserId());
+        record.setConfirmedCount(0);
+        if (result != null) {
+            record.setStatus("SUCCESS");
+            record.setGeneratedCount(result.getCases().size());
+            record.setScenarioGenerated(scenarioJson(result.getCases()));
+        } else {
+            record.setStatus("FAILED");
+            record.setGeneratedCount(0);
+            record.setScenarioGenerated("{}");
+            record.setError(truncate(failure.getError(), 500));
+        }
+        generationRecordMapper.insert(record);
+    }
+
+    private void updateRecordsOnConfirm(GenerationTask task) {
+        for (ApiGenerationResult result : task.getResults()) {
+            GenerationRecord record = generationRecordMapper.selectOne(new LambdaQueryWrapper<GenerationRecord>()
+                    .eq(GenerationRecord::getTaskId, task.getTaskId())
+                    .eq(GenerationRecord::getApiId, result.getApiId()));
+            if (record != null) {
+                record.setConfirmedCount(result.getCases().size());
+                record.setScenarioConfirmed(scenarioJson(result.getCases()));
+                record.setConfirmedAt(LocalDateTime.now());
+                generationRecordMapper.updateById(record);
+            }
+        }
+    }
+
+    private String scenarioJson(List<GeneratedCase> cases) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (GeneratedCase c : cases) {
+            String sc = c.getScenarioType() == null ? "unknown" : c.getScenarioType();
+            counts.merge(sc, 1, Integer::sum);
+        }
+        try {
+            return objectMapper.writeValueAsString(counts);
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    private String truncate(String value, int max) {
+        if (value == null) {
+            return null;
+        }
+        return value.length() <= max ? value : value.substring(0, max);
     }
 
     private GenerationTask getTask(String taskId) {

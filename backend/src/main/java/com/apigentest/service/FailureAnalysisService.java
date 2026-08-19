@@ -10,6 +10,6 @@ public interface FailureAnalysisService {
     /** 查询某条明细的归因结果（未分析过返回 null） */
     FailureAnalysisVO getByDetailId(Long detailId);
 
-    /** 确认归因结果（标记已确认） */
-    FailureAnalysisVO confirm(Long id);
+    /** 确认归因结果；category 为空表示确认 LLM 原分类，否则记录人工修正后的分类 */
+    FailureAnalysisVO confirm(Long id, String category);
 }

@@ -33,6 +33,15 @@ public class GenerationTask {
 
     private LocalDateTime createdAt;
 
+    /** 生成参数（P2-2 埋点） */
+    private String model;
+
+    private double temperature;
+
+    private String promptVersion;
+
+    private int maxRetry;
+
     private final List<ApiGenerationResult> results = new CopyOnWriteArrayList<>();
 
     private final List<ApiGenerationFailure> failures = new CopyOnWriteArrayList<>();

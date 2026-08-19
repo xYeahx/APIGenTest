@@ -37,12 +37,18 @@ jwt:
 
 app:
   upload-dir: ./uploads
+  # 敏感配置（LLM API Key）AES 加密密钥：生产环境务必替换为随机长字符串
+  crypto-key: apigentest-dev-crypto-key-please-change-2026
+  import:
+    # SSRF 防护：为 true 时禁止导入内网/保留地址的文档（生产保持 true）
+    block-private: true
 
 llm:
   base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
   model: qwen-plus
   timeout-ms: 60000
   max-retry: 2
+  temperature: 0.3
 
 logging:
   level:

@@ -1,16 +1,13 @@
 -- =====================================================================
 -- APIGenTest 数据库建表脚本
--- 对应《需求与设计文档》第二部分 2.1 核心表（10 张）
+-- 对应《需求与设计文档》第二部分 2.1 核心表（含 v2 团队协作与 P2 实验表，共 14 张）
 -- 适用 MySQL 8.0+，字符集 utf8mb4
--- 版本 v0.2 | 2026-08-11（新增 project_member 项目成员表，团队协作）
+-- 版本 v0.5 | 2026-08-20（新增 audit_log 审计日志表；清理 generation_record 重复残留）
 -- =====================================================================
-
 CREATE DATABASE IF NOT EXISTS apigentest
   DEFAULT CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
-
 USE apigentest;
-
 -- ---------------------------------------------------------------------
 -- 表1 user 用户表
 -- ---------------------------------------------------------------------
@@ -29,7 +26,6 @@ CREATE TABLE IF NOT EXISTS `user` (
   PRIMARY KEY (id),
   UNIQUE KEY uk_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
-
 -- ---------------------------------------------------------------------
 -- 表2 project 项目表
 -- ---------------------------------------------------------------------
@@ -44,7 +40,6 @@ CREATE TABLE IF NOT EXISTS project (
   KEY idx_owner_id (owner_id),
   CONSTRAINT fk_project_owner FOREIGN KEY (owner_id) REFERENCES `user` (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目表';
-
 -- ---------------------------------------------------------------------
 -- 表12 project_member 项目成员表（团队协作：成员 / 只读成员）
 -- ---------------------------------------------------------------------
@@ -61,7 +56,6 @@ CREATE TABLE IF NOT EXISTS project_member (
   CONSTRAINT fk_member_project FOREIGN KEY (project_id) REFERENCES project (id) ON DELETE CASCADE,
   CONSTRAINT fk_member_user FOREIGN KEY (user_id) REFERENCES `user` (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='项目成员表';
-
 -- ---------------------------------------------------------------------
 -- 表3 api_info 接口表（OpenAPI 解析结果）
 -- ---------------------------------------------------------------------
@@ -81,7 +75,6 @@ CREATE TABLE IF NOT EXISTS api_info (
   KEY idx_method_path (method, path),
   CONSTRAINT fk_api_project FOREIGN KEY (project_id) REFERENCES project (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='接口表（OpenAPI 解析结果）';
-
 -- ---------------------------------------------------------------------
 -- 表4 environment 环境表
 -- ---------------------------------------------------------------------
@@ -97,7 +90,6 @@ CREATE TABLE IF NOT EXISTS environment (
   KEY idx_project_id (project_id),
   CONSTRAINT fk_env_project FOREIGN KEY (project_id) REFERENCES project (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='环境表';
-
 -- ---------------------------------------------------------------------
 -- 表5 test_case 用例表（核心表）
 -- ---------------------------------------------------------------------
@@ -116,6 +108,12 @@ CREATE TABLE IF NOT EXISTS test_case (
   pre_case_id   BIGINT       DEFAULT NULL COMMENT '前置依赖用例',
   extract_vars  TEXT         COMMENT '响应提取变量（JSON）',
   status        TINYINT      NOT NULL DEFAULT 1 COMMENT '1 启用 / 0 禁用',
+  source             TINYINT      NOT NULL DEFAULT 1 COMMENT '1 手动 / 2 AI 生成（P2 埋点）',
+  gen_task_id        VARCHAR(36)  DEFAULT NULL COMMENT 'AI 生成任务ID',
+  gen_model          VARCHAR(50)  DEFAULT NULL COMMENT '生成模型',
+  gen_temperature    DECIMAL(4,2) DEFAULT NULL COMMENT '生成温度',
+  gen_prompt_version VARCHAR(20)  DEFAULT NULL COMMENT '生成 Prompt 版本',
+  gen_retry_count    INT          DEFAULT 0 COMMENT '生成实际重试次数',
   creator_id    BIGINT       DEFAULT NULL COMMENT '创建人',
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -128,7 +126,6 @@ CREATE TABLE IF NOT EXISTS test_case (
   CONSTRAINT fk_case_creator FOREIGN KEY (creator_id) REFERENCES `user` (id),
   CONSTRAINT fk_case_pre     FOREIGN KEY (pre_case_id) REFERENCES test_case (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用例表（核心表）';
-
 -- ---------------------------------------------------------------------
 -- 表6 execution 执行记录表（一次执行）
 -- ---------------------------------------------------------------------
@@ -150,7 +147,6 @@ CREATE TABLE IF NOT EXISTS execution (
   CONSTRAINT fk_exec_project  FOREIGN KEY (project_id) REFERENCES project (id),
   CONSTRAINT fk_exec_operator FOREIGN KEY (operator_id) REFERENCES `user` (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='执行记录表（一次执行）';
-
 -- ---------------------------------------------------------------------
 -- 表7 execution_detail 用例执行明细表
 -- ---------------------------------------------------------------------
@@ -172,7 +168,6 @@ CREATE TABLE IF NOT EXISTS execution_detail (
   CONSTRAINT fk_detail_exec FOREIGN KEY (execution_id) REFERENCES execution (id),
   CONSTRAINT fk_detail_case FOREIGN KEY (case_id) REFERENCES test_case (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用例执行明细表';
-
 -- ---------------------------------------------------------------------
 -- 表8 failure_analysis 失败归因表
 -- ---------------------------------------------------------------------
@@ -183,13 +178,14 @@ CREATE TABLE IF NOT EXISTS failure_analysis (
   reason              TEXT         COMMENT 'LLM 分析原因',
   suggestion          TEXT         COMMENT '定位建议',
   confirmed           TINYINT      NOT NULL DEFAULT 0 COMMENT '0 待确认 / 1 已确认',
+  confirmed_category  VARCHAR(20)  DEFAULT NULL COMMENT '人工确认/修正后的分类（NULL=未确认；与 category 相同=确认正确，不同=人工修正）',
+  confirmed_at        DATETIME     DEFAULT NULL COMMENT '确认时间',
   llm_model           VARCHAR(50)  DEFAULT NULL COMMENT '使用的模型',
   created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录时间',
   PRIMARY KEY (id),
   UNIQUE KEY uk_execution_detail_id (execution_detail_id),
   CONSTRAINT fk_failure_detail FOREIGN KEY (execution_detail_id) REFERENCES execution_detail (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='失败归因表';
-
 -- ---------------------------------------------------------------------
 -- 表9 scheduled_task 定时任务表
 -- ---------------------------------------------------------------------
@@ -211,7 +207,6 @@ CREATE TABLE IF NOT EXISTS scheduled_task (
   CONSTRAINT fk_task_env     FOREIGN KEY (environment_id) REFERENCES environment (id),
   CONSTRAINT fk_task_creator FOREIGN KEY (creator_id) REFERENCES `user` (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='定时任务表';
-
 -- ---------------------------------------------------------------------
 -- 表10 sys_config 系统配置表
 -- ---------------------------------------------------------------------
@@ -224,7 +219,6 @@ CREATE TABLE IF NOT EXISTS sys_config (
   PRIMARY KEY (id),
   UNIQUE KEY uk_config_key (config_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统配置表';
-
 -- ---------------------------------------------------------------------
 -- 表11 notification 站内信通知表
 -- ---------------------------------------------------------------------
@@ -240,3 +234,49 @@ CREATE TABLE IF NOT EXISTS notification (
   PRIMARY KEY (id),
   KEY idx_user_read (user_id, is_read)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='站内信通知表';
+-- ---------------------------------------------------------------------
+-- 表12 generation_record AI 生成记录表（P2 实验数据埋点）
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS generation_record (
+  id                  BIGINT       NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+  task_id             VARCHAR(36)  NOT NULL COMMENT '生成任务ID',
+  project_id          BIGINT       NOT NULL COMMENT '所属项目',
+  api_id              BIGINT       NOT NULL COMMENT '生成接口',
+  model               VARCHAR(50)  DEFAULT NULL COMMENT '生成模型',
+  temperature         DECIMAL(4,2) DEFAULT NULL COMMENT '生成温度',
+  prompt_version      VARCHAR(20)  DEFAULT NULL COMMENT '生成 Prompt 版本',
+  max_retry           INT          NOT NULL DEFAULT 0 COMMENT '配置最大重试次数',
+  retry_used          INT          NOT NULL DEFAULT 0 COMMENT '本次实际重试次数',
+  business_desc       VARCHAR(500) DEFAULT NULL COMMENT '补充业务描述',
+  generated_count     INT          NOT NULL DEFAULT 0 COMMENT '校验通过可入库用例数',
+  confirmed_count     INT          NOT NULL DEFAULT 0 COMMENT '确认入库用例数',
+  scenario_generated  VARCHAR(500) DEFAULT NULL COMMENT '按场景类型生成数（JSON）',
+  scenario_confirmed  VARCHAR(500) DEFAULT NULL COMMENT '按场景类型确认数（JSON）',
+  status              VARCHAR(20)  NOT NULL DEFAULT 'SUCCESS' COMMENT 'SUCCESS / PARTIAL_FAILED / FAILED',
+  error               VARCHAR(500) DEFAULT NULL COMMENT '失败原因',
+  created_by          BIGINT       DEFAULT NULL COMMENT '操作人',
+  created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '生成完成时间',
+  confirmed_at        DATETIME     DEFAULT NULL COMMENT '确认入库时间',
+  PRIMARY KEY (id),
+  KEY idx_gen_task (task_id),
+  KEY idx_gen_project (project_id),
+  CONSTRAINT fk_gen_project FOREIGN KEY (project_id) REFERENCES project (id),
+  CONSTRAINT fk_gen_api     FOREIGN KEY (api_id) REFERENCES api_info (id),
+  CONSTRAINT fk_gen_user    FOREIGN KEY (created_by) REFERENCES `user` (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI 生成记录表（P2 实验数据埋点）';
+-- ---------------------------------------------------------------------
+-- 表13 audit_log 管理操作审计日志表（改配置 / 重置密码 / 改角色 / 吊销 Token 等留痕）
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS audit_log (
+  id         BIGINT       NOT NULL AUTO_INCREMENT COMMENT '日志ID',
+  user_id    BIGINT       DEFAULT NULL COMMENT '操作人ID（CI/系统触发可为空）',
+  username   VARCHAR(50)  DEFAULT NULL COMMENT '操作人登录名',
+  action     VARCHAR(50)  NOT NULL COMMENT '操作类型：UPDATE_CONFIG / UPDATE_USER_STATUS / UPDATE_USER_ROLE / RESET_PASSWORD / DELETE_USER / REGENERATE_CI_TOKEN 等',
+  target     VARCHAR(255) DEFAULT NULL COMMENT '操作对象描述（如 config:llm_api_key / user:5）',
+  detail     VARCHAR(500) DEFAULT NULL COMMENT '补充说明（敏感值不记录原文）',
+  created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+  PRIMARY KEY (id),
+  KEY idx_action (action),
+  KEY idx_user_id (user_id),
+  KEY idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='管理操作审计日志表';

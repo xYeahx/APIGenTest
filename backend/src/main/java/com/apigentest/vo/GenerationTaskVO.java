@@ -31,6 +31,15 @@ public class GenerationTaskVO {
 
     private LocalDateTime createdAt;
 
+    /** 生成参数（P2-2 埋点） */
+    private String model;
+
+    private double temperature;
+
+    private String promptVersion;
+
+    private int maxRetry;
+
     private List<ApiGenerationResult> results;
 
     private List<ApiGenerationFailure> failures;

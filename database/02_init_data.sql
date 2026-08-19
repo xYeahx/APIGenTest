@@ -17,4 +17,5 @@ INSERT INTO sys_config (config_key, config_value, is_secret) VALUES
 ('llm_base_url',   'https://dashscope.aliyuncs.com/compatible-mode/v1', 0),
 ('default_timeout', '10000',                                 0),
 ('super_admin_invite_code', '',                                    1),
-('default_retry',  '2',                                      0);
+('default_retry',  '2',                                      0),
+('llm_temperature', '0.3',                                   0);

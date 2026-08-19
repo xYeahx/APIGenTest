@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listConfigs, updateConfig, testLlmConfig, getCiToken, regenerateCiToken } from '../api/admin'
+import { listConfigs, updateConfig, testLlmConfig, getCiToken, regenerateCiToken, listAuditLogs } from '../api/admin'
 import request from '../api/request'
 
 const configs = ref([])
@@ -21,12 +21,29 @@ const webhookEnabled = ref(false)
 const webhookSaving = ref(false)
 const webhookTesting = ref(false)
 
+// 审计日志
+const auditRows = ref([])
+const auditTotal = ref(0)
+const auditPage = ref(1)
+const auditSize = ref(20)
+const auditLoading = ref(false)
+const auditAction = ref('')
+const auditActionLabels = {
+  UPDATE_CONFIG: '修改系统配置',
+  UPDATE_USER_STATUS: '启用/禁用用户',
+  UPDATE_USER_ROLE: '变更用户角色',
+  RESET_PASSWORD: '重置密码',
+  DELETE_USER: '删除用户',
+  REGENERATE_CI_TOKEN: '重新生成CI Token',
+}
+
 const keyMeta = {
   llm_api_key: { label: 'LLM API Key', desc: '大模型 API Key（加密存储，仅管理员可见）' },
   llm_model: { label: 'LLM 模型', desc: '例如 qwen-plus / deepseek-chat' },
   llm_base_url: { label: 'LLM Base URL', desc: 'OpenAI 兼容接口地址' },
   default_timeout: { label: '默认超时(ms)', desc: '执行用例默认超时时间' },
   default_retry: { label: '默认重试次数', desc: '用例失败重试次数' },
+  llm_temperature: { label: '生成温度', desc: 'AI 生成用例/归因使用的温度参数（0~1，P2 实验对比）' },
   super_admin_invite_code: { label: '超管注册码', desc: '注册页填写该注册码的账号将注册为超级管理员（脱敏存储，可随时修改/清空）' },
 }
 
@@ -53,9 +70,46 @@ async function loadCi() {
   }
 }
 
+async function loadAuditLogs() {
+  auditLoading.value = true
+  try {
+    const params = { page: auditPage.value, size: auditSize.value }
+    if (auditAction.value) params.action = auditAction.value
+    const page = await listAuditLogs(params)
+    auditRows.value = page.records || []
+    auditTotal.value = page.total || 0
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+function handleAuditFilter() {
+  auditPage.value = 1
+  loadAuditLogs()
+}
+
+function handleAuditPage(p) {
+  auditPage.value = p
+  loadAuditLogs()
+}
+
+function auditTagType(action) {
+  return (
+    {
+      UPDATE_CONFIG: 'warning',
+      UPDATE_USER_STATUS: 'success',
+      UPDATE_USER_ROLE: 'primary',
+      RESET_PASSWORD: 'warning',
+      DELETE_USER: 'danger',
+      REGENERATE_CI_TOKEN: 'info',
+    }[action] || 'info'
+  )
+}
+
 onMounted(() => {
   load()
   loadCi()
+  loadAuditLogs()
 })
 
 async function handleTest() {
@@ -96,6 +150,10 @@ async function handleRegenerate() {
   newToken.value = res.token
   tokenDialogVisible.value = true
   loadCi()
+}
+
+function formatAuditTime(t) {
+  return t ? String(t).replace('T', ' ').substring(0, 19) : '—'
 }
 
 async function handleCopy(text) {
@@ -224,6 +282,60 @@ function sampleWithToken() {
       <p style="color: #c0c4cc; font-size: 12px; margin-top: 4px">
         推送 JSON 示例：{"event":"execution_finished","executionId":1,"projectId":1,"totalCases":10,"passed":9,"failed":1,"passRate":90.0}
       </p>
+    </el-card>
+    <el-card style="margin-top: 16px">
+      <template #header>操作审计日志（仅管理员）</template>
+      <el-alert
+        type="info"
+        :closable="false"
+        title="记录系统配置修改、用户状态/角色变更、重置密码、删除用户、重新生成 CI Token 等管理操作"
+        style="margin-bottom: 16px"
+      />
+      <div class="test-bar">
+        <el-select
+          v-model="auditAction"
+          placeholder="按操作类型筛选"
+          clearable
+          style="width: 220px"
+          @change="handleAuditFilter"
+        >
+          <el-option v-for="(label, key) in auditActionLabels" :key="key" :label="label" :value="key" />
+        </el-select>
+        <div style="flex: 1"></div>
+        <el-button plain :loading="auditLoading" @click="loadAuditLogs">
+          <el-icon style="margin-right: 4px"><Refresh /></el-icon>刷新
+        </el-button>
+      </div>
+      <el-table v-loading="auditLoading" :data="auditRows" style="margin-top: 12px" empty-text="暂无审计记录">
+        <el-table-column label="时间" width="180">
+          <template #default="{ row }">{{ formatAuditTime(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column label="操作人" width="120">
+          <template #default="{ row }">{{ row.username || 'system' }}</template>
+        </el-table-column>
+        <el-table-column label="操作类型" width="160">
+          <template #default="{ row }">
+            <el-tag size="small" :type="auditTagType(row.action)">{{ auditActionLabels[row.action] || row.action }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作对象" min-width="160">
+          <template #default="{ row }">{{ row.target || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="补充说明" min-width="220">
+          <template #default="{ row }">
+            <span style="color: #606266">{{ row.detail || '—' }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-pagination
+        v-if="auditTotal > 0"
+        style="margin-top: 12px; justify-content: flex-end"
+        layout="total, prev, pager, next"
+        :total="auditTotal"
+        :current-page="auditPage"
+        :page-size="auditSize"
+        @current-change="handleAuditPage"
+      />
     </el-card>
     <el-dialog v-model="tokenDialogVisible" title="新 CI Token（仅显示一次）" width="560px" top="10vh">
       <el-alert

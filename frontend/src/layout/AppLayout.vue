@@ -17,6 +17,7 @@ let timer = null
 const activeMenu = computed(() => {
   if (route.path.startsWith('/projects')) return '/projects'
   if (route.path.startsWith('/settings')) return '/settings'
+  if (route.path.startsWith('/stats')) return '/stats'
   return route.path
 })
 
@@ -106,6 +107,10 @@ onUnmounted(() => {
         <el-menu-item v-if="authStore.userInfo?.role >= 2" index="/settings">
           <el-icon><Setting /></el-icon>
           <span>系统设置</span>
+        </el-menu-item>
+        <el-menu-item v-if="authStore.userInfo?.role >= 2" index="/stats">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>实验统计</span>
         </el-menu-item>
       </el-menu>
     </el-aside>

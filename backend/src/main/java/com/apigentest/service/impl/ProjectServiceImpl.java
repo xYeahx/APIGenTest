@@ -9,6 +9,7 @@ import com.apigentest.entity.Environment;
 import com.apigentest.entity.Execution;
 import com.apigentest.entity.ExecutionDetail;
 import com.apigentest.entity.FailureAnalysis;
+import com.apigentest.entity.GenerationRecord;
 import com.apigentest.entity.Notification;
 import com.apigentest.entity.Project;
 import com.apigentest.entity.ProjectMember;
@@ -19,6 +20,7 @@ import com.apigentest.mapper.ApiInfoMapper;
 import com.apigentest.mapper.EnvironmentMapper;
 import com.apigentest.mapper.ExecutionDetailMapper;
 import com.apigentest.mapper.FailureAnalysisMapper;
+import com.apigentest.mapper.GenerationRecordMapper;
 import com.apigentest.mapper.ExecutionMapper;
 import com.apigentest.mapper.NotificationMapper;
 import com.apigentest.mapper.ProjectMapper;
@@ -54,12 +56,14 @@ public class ProjectServiceImpl implements ProjectService {
     private final FailureAnalysisMapper failureAnalysisMapper;
     private final ScheduledTaskMapper scheduledTaskMapper;
     private final NotificationMapper notificationMapper;
+    private final GenerationRecordMapper generationRecordMapper;
 
     public ProjectServiceImpl(ProjectMapper projectMapper, ProjectMemberMapper memberMapper, UserMapper userMapper,
                               ApiInfoMapper apiInfoMapper, EnvironmentMapper environmentMapper,
                               TestCaseMapper testCaseMapper, ExecutionMapper executionMapper,
                               ExecutionDetailMapper executionDetailMapper, FailureAnalysisMapper failureAnalysisMapper,
-                              ScheduledTaskMapper scheduledTaskMapper, NotificationMapper notificationMapper) {
+                              ScheduledTaskMapper scheduledTaskMapper, NotificationMapper notificationMapper,
+                              GenerationRecordMapper generationRecordMapper) {
         this.projectMapper = projectMapper;
         this.memberMapper = memberMapper;
         this.userMapper = userMapper;
@@ -71,6 +75,7 @@ public class ProjectServiceImpl implements ProjectService {
         this.failureAnalysisMapper = failureAnalysisMapper;
         this.scheduledTaskMapper = scheduledTaskMapper;
         this.notificationMapper = notificationMapper;
+        this.generationRecordMapper = generationRecordMapper;
     }
 
     @Override
@@ -137,6 +142,7 @@ public class ProjectServiceImpl implements ProjectService {
                 .eq(TestCase::getProjectId, id)
                 .set(TestCase::getPreCaseId, null));
         testCaseMapper.delete(new LambdaQueryWrapper<TestCase>().eq(TestCase::getProjectId, id));
+        generationRecordMapper.delete(new LambdaQueryWrapper<GenerationRecord>().eq(GenerationRecord::getProjectId, id));
         apiInfoMapper.delete(new LambdaQueryWrapper<ApiInfo>().eq(ApiInfo::getProjectId, id));
         environmentMapper.delete(new LambdaQueryWrapper<Environment>().eq(Environment::getProjectId, id));
         memberMapper.delete(new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getProjectId, id));

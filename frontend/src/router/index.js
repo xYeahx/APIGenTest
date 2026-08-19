@@ -30,6 +30,12 @@ const routes = [
         name: 'settings',
         component: () => import('../views/Settings.vue'),
         meta: { requiresAuth: true, adminOnly: true, title: '系统设置' },
+      },
+      {
+        path: 'stats',
+        name: 'stats',
+        component: () => import('../views/Stats.vue'),
+        meta: { requiresAuth: true, adminOnly: true, title: '实验统计' },
       },      {
         path: 'admin/users',
         name: 'admin-users',

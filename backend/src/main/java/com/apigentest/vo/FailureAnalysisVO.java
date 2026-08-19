@@ -29,6 +29,12 @@ public class FailureAnalysisVO {
 
     private LocalDateTime createdAt;
 
+    /** 人工确认/修正后的分类 */
+    private String confirmedCategory;
+
+    /** 确认时间 */
+    private LocalDateTime confirmedAt;
+
     /** 关联用例名（可能已删除） */
     private String caseName;
 
@@ -48,6 +54,8 @@ public class FailureAnalysisVO {
         vo.setConfirmed(f.getConfirmed());
         vo.setLlmModel(f.getLlmModel());
         vo.setCreatedAt(f.getCreatedAt());
+        vo.setConfirmedCategory(f.getConfirmedCategory());
+        vo.setConfirmedAt(f.getConfirmedAt());
         vo.setCaseName(caseName);
         vo.setDetailStatus(detailStatus);
         vo.setErrorMessage(errorMessage);

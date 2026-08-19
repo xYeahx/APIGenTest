@@ -1,10 +1,14 @@
 package com.apigentest.common;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
@@ -24,6 +28,21 @@ public class GlobalExceptionHandler {
         FieldError fieldError = e.getBindingResult().getFieldError();
         String message = fieldError == null ? "参数校验失败" : fieldError.getDefaultMessage();
         return Result.fail(400, message);
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public Result<Void> handleMissingParam(MissingServletRequestParameterException e) {
+        return Result.fail(400, "缺少必填参数：" + e.getParameterName());
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public Result<Void> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        return Result.fail(400, "参数格式不正确：" + e.getName());
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public Result<Void> handleMethodNotSupported(HttpRequestMethodNotSupportedException e) {
+        return Result.fail(HttpStatus.METHOD_NOT_ALLOWED.value(), "请求方式不支持");
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
