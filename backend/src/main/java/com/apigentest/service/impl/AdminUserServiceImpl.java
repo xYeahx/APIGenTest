@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.Roles;
 import com.apigentest.common.UserContext;
 import com.apigentest.entity.Project;
@@ -75,7 +76,7 @@ public class AdminUserServiceImpl implements AdminUserService {
         if (status != null && status == 0
                 && target.getRole() != null && target.getRole() == Roles.SUPER_ADMIN
                 && enabledSuperAdminCount() <= 1) {
-            throw new BusinessException(400, "至少保留一个启用的超级管理员账号");
+            throw new BusinessException(ErrorCode.ILLEGAL_STATE, "至少保留一个启用的超级管理员账号");
         }
         target.setStatus(status != null && status == 1 ? 1 : 0);
         userMapper.updateById(target);
@@ -90,7 +91,7 @@ public class AdminUserServiceImpl implements AdminUserService {
         ensureManageable(target);
         String pwd = password == null || password.isBlank() ? DEFAULT_PASSWORD : password.trim();
         if (pwd.length() < 6 || pwd.length() > 20) {
-            throw new BusinessException(400, "密码长度需为 6~20 位");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "密码长度需为 6~20 位");
         }
         target.setPassword(passwordEncoder.encode(pwd));
         userMapper.updateById(target);
@@ -106,7 +107,7 @@ public class AdminUserServiceImpl implements AdminUserService {
         Long projectCount = projectMapper.selectCount(
                 new LambdaQueryWrapper<Project>().eq(Project::getOwnerId, id));
         if (projectCount != null && projectCount > 0) {
-            throw new BusinessException(400, "该用户名下存在 " + projectCount + " 个项目，请先删除项目");
+            throw new BusinessException(ErrorCode.CONFLICT, "该用户名下存在 " + projectCount + " 个项目，请先删除项目");
         }
         // 清理该用户参与的项目成员关系（外键 fk_member_user）
         memberMapper.delete(new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getUserId, id));
@@ -119,13 +120,13 @@ public class AdminUserServiceImpl implements AdminUserService {
         checkSuperAdmin();
         User target = requireUser(id);
         if (target.getId().equals(UserContext.getUserId())) {
-            throw new BusinessException(400, "不能修改自己的角色");
+            throw new BusinessException(ErrorCode.ILLEGAL_STATE, "不能修改自己的角色");
         }
         if (target.getRole() != null && target.getRole() == Roles.SUPER_ADMIN) {
-            throw new BusinessException(403, "不能修改超级管理员的角色");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "不能修改超级管理员的角色");
         }
         if (role == null || (role != Roles.USER && role != Roles.ADMIN)) {
-            throw new BusinessException(400, "目标角色仅支持 1 普通用户 / 2 管理员");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "目标角色仅支持 1 普通用户 / 2 管理员");
         }
         target.setRole(role);
         userMapper.updateById(target);
@@ -137,7 +138,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     private void checkAdmin() {
         Integer role = UserContext.getRole();
         if (!Roles.isAdmin(role)) {
-            throw new BusinessException(403, "仅管理员或超级管理员可操作用户管理");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "仅管理员或超级管理员可操作用户管理");
         }
     }
 
@@ -145,7 +146,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     private void checkSuperAdmin() {
         Integer role = UserContext.getRole();
         if (!Roles.isSuperAdmin(role)) {
-            throw new BusinessException(403, "仅超级管理员可进行角色管理");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "仅超级管理员可进行角色管理");
         }
     }
 
@@ -153,17 +154,17 @@ public class AdminUserServiceImpl implements AdminUserService {
     private void ensureManageable(User target) {
         Integer myRole = UserContext.getRole();
         if (target.getId().equals(UserContext.getUserId())) {
-            throw new BusinessException(400, "不能操作自己的账号");
+            throw new BusinessException(ErrorCode.ILLEGAL_STATE, "不能操作自己的账号");
         }
         if (target.getRole() != null && target.getRole() >= myRole) {
-            throw new BusinessException(403, "无权操作同级或更高级别的账号");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权操作同级或更高级别的账号");
         }
     }
 
     private User requireUser(Long id) {
         User user = userMapper.selectById(id);
         if (user == null) {
-            throw new BusinessException(404, "用户不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "用户不存在");
         }
         return user;
     }

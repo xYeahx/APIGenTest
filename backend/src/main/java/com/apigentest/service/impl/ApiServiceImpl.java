@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.OpenApiParser;
 import com.apigentest.entity.ApiInfo;
 import com.apigentest.entity.TestCase;
@@ -60,13 +61,13 @@ public class ApiServiceImpl implements ApiService {
     public ImportResultVO importFromFile(Long projectId, MultipartFile file) {
         projectService.requireWrite(projectId);
         if (file == null || file.isEmpty()) {
-            throw new BusinessException(400, "文件不能为空");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "文件不能为空");
         }
         try {
             String content = new String(file.getBytes(), StandardCharsets.UTF_8);
             return doImport(projectId, content);
         } catch (IOException e) {
-            throw new BusinessException(500, "文件读取失败");
+            throw new BusinessException(ErrorCode.IO_ERROR, "文件读取失败");
         }
     }
 
@@ -81,7 +82,7 @@ public class ApiServiceImpl implements ApiService {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new BusinessException(500, "获取远程文档失败：" + e.getMessage());
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "获取远程文档失败：" + e.getMessage());
         }
     }
 
@@ -91,7 +92,7 @@ public class ApiServiceImpl implements ApiService {
      */
     private void validateRemoteUrl(String url) {
         if (url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) {
-            throw new BusinessException(400, "文档地址必须是 http/https 链接");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "文档地址必须是 http/https 链接");
         }
         if (!blockPrivateImport) {
             return;
@@ -100,18 +101,18 @@ public class ApiServiceImpl implements ApiService {
             URI uri = URI.create(url);
             String host = uri.getHost();
             if (host == null || host.isBlank()) {
-                throw new BusinessException(400, "文档地址缺少有效主机名");
+                throw new BusinessException(ErrorCode.PARAM_INVALID, "文档地址缺少有效主机名");
             }
             InetAddress[] addresses = InetAddress.getAllByName(host);
             for (InetAddress addr : addresses) {
                 if (isPrivateAddress(addr)) {
-                    throw new BusinessException(400, "出于安全考虑，禁止导入内网/保留地址的文档：" + host);
+                    throw new BusinessException(ErrorCode.PARAM_INVALID, "出于安全考虑，禁止导入内网/保留地址的文档：" + host);
                 }
             }
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new BusinessException(400, "文档地址无法解析：" + e.getMessage());
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "文档地址无法解析：" + e.getMessage());
         }
     }
 
@@ -143,11 +144,11 @@ public class ApiServiceImpl implements ApiService {
                     "application/json, application/yaml, text/plain;q=0.8, */*;q=0.5");
             int code = conn.getResponseCode();
             if (code >= 300 && code < 400) {
-                throw new BusinessException(400, "文档地址返回重定向（HTTP " + code + "），已阻止自动跳转");
+                throw new BusinessException(ErrorCode.PARAM_INVALID, "文档地址返回重定向（HTTP " + code + "），已阻止自动跳转");
             }
             try (InputStream in = code >= 400 ? conn.getErrorStream() : conn.getInputStream()) {
                 if (in == null) {
-                    throw new BusinessException(500, "远程文档无响应内容（HTTP " + code + "）");
+                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "远程文档无响应内容（HTTP " + code + "）");
                 }
                 return new String(in.readAllBytes(), StandardCharsets.UTF_8);
             }
@@ -166,10 +167,10 @@ public class ApiServiceImpl implements ApiService {
         try {
             parsed = openApiParser.parseApis(content);
         } catch (IllegalArgumentException e) {
-            throw new BusinessException(400, e.getMessage());
+            throw new BusinessException(ErrorCode.PARAM_INVALID, e.getMessage());
         }
         if (parsed.isEmpty()) {
-            throw new BusinessException(400, "文档中未解析到任何接口（paths 为空）");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "文档中未解析到任何接口（paths 为空）");
         }
         // 替换式导入：先清空该项目旧接口
         apiInfoMapper.delete(new LambdaQueryWrapper<ApiInfo>().eq(ApiInfo::getProjectId, projectId));
@@ -217,7 +218,7 @@ public class ApiServiceImpl implements ApiService {
     public ApiInfoVO getApiDetail(Long apiId) {
         ApiInfo api = apiInfoMapper.selectById(apiId);
         if (api == null) {
-            throw new BusinessException(404, "接口不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "接口不存在");
         }
         projectService.requireRead(api.getProjectId());
         ApiInfoVO vo = toVO(api, Map.of());

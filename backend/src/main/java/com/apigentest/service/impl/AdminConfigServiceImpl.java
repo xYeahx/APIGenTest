@@ -2,6 +2,7 @@ package com.apigentest.service.impl;
 
 import com.apigentest.common.AesUtil;
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.LlmCallException;
 import com.apigentest.common.UserContext;
 import com.apigentest.entity.SysConfig;
@@ -64,14 +65,14 @@ public class AdminConfigServiceImpl implements AdminConfigService {
     public void update(String key, String value) {
         checkAdmin();
         if (!ALLOWED_KEYS.contains(key)) {
-            throw new BusinessException(400, "不允许的配置项：" + key);
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "不允许的配置项：" + key);
         }
         if ("webhook_enabled".equals(key) && !"0".equals(value) && !"1".equals(value)) {
-            throw new BusinessException(400, "webhook_enabled 必须是 0 或 1");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "webhook_enabled 必须是 0 或 1");
         }
         if ("webhook_url".equals(key) && value != null && !value.isBlank()
                 && !value.startsWith("http://") && !value.startsWith("https://")) {
-            throw new BusinessException(400, "webhook_url 必须是 http/https 地址");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "webhook_url 必须是 http/https 地址");
         }
         if ("default_retry".equals(key) || "default_timeout".equals(key)) {
             try {
@@ -80,7 +81,7 @@ public class AdminConfigServiceImpl implements AdminConfigService {
                     throw new NumberFormatException();
                 }
             } catch (NumberFormatException e) {
-                throw new BusinessException(400, key + " 必须是正整数");
+                throw new BusinessException(ErrorCode.PARAM_INVALID, key + " 必须是正整数");
             }
         }
         // LLM API Key 加密后落库（AES-GCM），避免明文存储
@@ -111,7 +112,7 @@ public class AdminConfigServiceImpl implements AdminConfigService {
         checkAdmin();
         String apiKey = llmConfigService.getApiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            throw new BusinessException(400, "LLM API Key 未配置，请先在系统设置中保存");
+            throw new BusinessException(ErrorCode.LLM_NOT_CONFIGURED, "LLM API Key 未配置，请先在系统设置中保存");
         }
         String baseUrl = llmConfigService.getBaseUrl();
         String model = llmConfigService.getModel();
@@ -122,7 +123,7 @@ public class AdminConfigServiceImpl implements AdminConfigService {
                     "baseUrl", baseUrl,
                     "reply", reply == null ? "" : reply.trim());
         } catch (LlmCallException e) {
-            throw new BusinessException(400, "LLM 连接失败：" + e.getMessage());
+            throw new BusinessException(ErrorCode.LLM_CALL_FAILED, "LLM 连接失败：" + e.getMessage());
         }
     }
 
@@ -135,7 +136,7 @@ public class AdminConfigServiceImpl implements AdminConfigService {
     private void checkAdmin() {
         Integer role = UserContext.getRole();
         if (role == null || role < 2) {
-            throw new BusinessException(403, "仅管理员或超级管理员可操作系统配置");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "仅管理员或超级管理员可操作系统配置");
         }
     }
 

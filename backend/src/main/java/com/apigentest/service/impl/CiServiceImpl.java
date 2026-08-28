@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.UserContext;
 import com.apigentest.dto.RunRequestDTO;
 import com.apigentest.entity.Project;
@@ -93,7 +94,7 @@ public class CiServiceImpl implements CiService {
     public Long runByToken(String token, RunRequestDTO dto) {
         String stored = getConfigValue(CI_TOKEN_KEY);
         if (stored == null || stored.isBlank() || token == null || !constantTimeEquals(stored, token)) {
-            throw new BusinessException(401, "CI Token 无效或未配置，请到系统设置中重新生成");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "CI Token 无效或未配置，请到系统设置中重新生成");
         }
         Long operatorId = resolveOperator(dto.getProjectId());
         return executionService.runBySystem(dto, 3, operatorId, null);
@@ -115,7 +116,7 @@ public class CiServiceImpl implements CiService {
     private void checkAdmin() {
         Integer role = UserContext.getRole();
         if (role == null || role < 2) {
-            throw new BusinessException(403, "仅管理员或超级管理员可操作系统配置");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "仅管理员或超级管理员可操作系统配置");
         }
     }
 

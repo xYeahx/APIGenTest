@@ -3,7 +3,7 @@ package com.apigentest.common;
 import lombok.Data;
 
 /**
- * 统一返回体，约定：code=0 成功，非 0 为错误码（401 未登录 / 403 无权限 / 500 服务异常）
+ * 统一返回体，约定：code=0 成功，非 0 为业务错误码（详见 {@link ErrorCode}；30001 未登录 / 30002 无权限 / 20002 资源不存在等）
  */
 @Data
 public class Result<T> {

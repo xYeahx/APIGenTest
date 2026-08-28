@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.LlmCallException;
 import com.apigentest.common.UserContext;
 import com.apigentest.dto.GenerateRequestDTO;
@@ -86,15 +87,15 @@ public class GenerationServiceImpl implements GenerationService {
     @Override
     public String submit(List<Long> apiIds, String businessDesc) {
         if (apiIds == null || apiIds.isEmpty()) {
-            throw new BusinessException(400, "请至少选择一个接口");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "请至少选择一个接口");
         }
         List<ApiInfo> apis = apiInfoMapper.selectBatchIds(apiIds);
         if (apis.size() != apiIds.size()) {
-            throw new BusinessException(400, "部分接口不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分接口不存在");
         }
         Set<Long> projects = apis.stream().map(ApiInfo::getProjectId).collect(Collectors.toSet());
         if (projects.size() != 1) {
-            throw new BusinessException(400, "请选择同一项目下的接口");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "请选择同一项目下的接口");
         }
         Long projectId = projects.iterator().next();
         projectService.requireWrite(projectId);
@@ -116,7 +117,7 @@ public class GenerationServiceImpl implements GenerationService {
         try {
             String apiKey = llmConfigService.getApiKey();
             if (apiKey == null || apiKey.isBlank()) {
-                throw new BusinessException(500, "LLM API Key 未配置，请管理员在系统配置中设置");
+                throw new BusinessException(ErrorCode.LLM_NOT_CONFIGURED, "LLM API Key 未配置，请管理员在系统配置中设置");
             }
             String model = llmConfigService.getModel();
             String baseUrl = llmConfigService.getBaseUrl();
@@ -171,7 +172,7 @@ public class GenerationServiceImpl implements GenerationService {
                                                String apiKey, String model, String baseUrl, int maxRetry,
                                                double temperature) {
         if (api.getSpec() == null || api.getSpec().isBlank()) {
-            throw new BusinessException(400, "接口缺少 OpenAPI 定义，请重新导入文档");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "接口缺少 OpenAPI 定义，请重新导入文档");
         }
         String userContent = promptBuilder.buildUserContent(api.getId(), api.getSummary(), businessDesc, api.getSpec());
         Exception last = null;
@@ -193,7 +194,7 @@ public class GenerationServiceImpl implements GenerationService {
                 last = e;
             }
         }
-        throw new BusinessException(500, "接口生成失败（已重试 " + maxRetry + " 次）："
+        throw new BusinessException(ErrorCode.LLM_CALL_FAILED, "接口生成失败（已重试 " + maxRetry + " 次）："
                 + (last == null ? "未知错误" : last.getMessage()));
     }
 
@@ -222,10 +223,10 @@ public class GenerationServiceImpl implements GenerationService {
         GenerationTask task = getTask(taskId);
         projectService.requireWrite(task.getProjectId());
         if ("CONFIRMED".equals(task.getStatus())) {
-            throw new BusinessException(400, "该任务已确认入库，请勿重复操作");
+            throw new BusinessException(ErrorCode.ILLEGAL_STATE, "该任务已确认入库，请勿重复操作");
         }
         if (!TERMINAL_OK.contains(task.getStatus())) {
-            throw new BusinessException(400, "任务尚未生成完成，无法确认");
+            throw new BusinessException(ErrorCode.ILLEGAL_STATE, "任务尚未生成完成，无法确认");
         }
         int saved = 0;
         for (ApiGenerationResult result : task.getResults()) {
@@ -326,7 +327,7 @@ public class GenerationServiceImpl implements GenerationService {
     private GenerationTask getTask(String taskId) {
         GenerationTask task = taskStore.get(taskId);
         if (task == null) {
-            throw new BusinessException(404, "任务不存在或已过期");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "任务不存在或已过期");
         }
         return task;
     }

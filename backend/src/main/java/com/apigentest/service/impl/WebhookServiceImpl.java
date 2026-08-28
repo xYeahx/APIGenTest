@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.entity.Execution;
 import com.apigentest.entity.SysConfig;
 import com.apigentest.mapper.SysConfigMapper;
@@ -115,7 +116,7 @@ public class WebhookServiceImpl implements WebhookService {
     public String sendTest() {
         String url = config("webhook_url");
         if (url == null || url.isBlank()) {
-            throw new BusinessException(400, "Webhook 地址未配置，请先保存 Webhook URL");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "Webhook 地址未配置，请先保存 Webhook URL");
         }
         Map<String, Object> body = new HashMap<>();
         body.put("event", "test");
@@ -129,7 +130,7 @@ public class WebhookServiceImpl implements WebhookService {
                     .toBodilessEntity();
             return "发送成功";
         } catch (Exception e) {
-            throw new BusinessException(400, "发送失败：" + e.getMessage());
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "发送失败：" + e.getMessage());
         }
     }
 }

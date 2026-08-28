@@ -1,5 +1,6 @@
 package com.apigentest.service.llm;
 
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.LlmCallException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -12,6 +13,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.net.SocketTimeoutException;
 import java.util.List;
 import java.util.Map;
 
@@ -63,7 +65,10 @@ public class LlmClient {
             throw e;
         } catch (Exception e) {
             log.error("LLM 调用失败: {}", e.getMessage());
-            throw new LlmCallException("LLM 调用失败：" + e.getMessage(), e);
+            if (isTimeout(e)) {
+                throw new LlmCallException(ErrorCode.LLM_TIMEOUT, "LLM 调用超时：" + e.getMessage(), e);
+            }
+            throw new LlmCallException(ErrorCode.LLM_CALL_FAILED, "LLM 调用失败：" + e.getMessage(), e);
         }
     }
 
@@ -73,13 +78,22 @@ public class LlmClient {
             JsonNode choice = root.path("choices").path(0);
             String content = choice.path("message").path("content").asText(null);
             if (content == null) {
-                throw new LlmCallException("LLM 响应缺少 content 字段");
+                throw new LlmCallException(ErrorCode.LLM_VALIDATE_FAILED, "LLM 响应缺少 content 字段");
             }
             return content;
         } catch (LlmCallException e) {
             throw e;
         } catch (Exception e) {
-            throw new LlmCallException("LLM 响应解析失败", e);
+            throw new LlmCallException(ErrorCode.LLM_VALIDATE_FAILED, "LLM 响应解析失败", e);
         }
+    }
+
+    private boolean isTimeout(Throwable t) {
+        for (Throwable cur = t; cur != null; cur = cur.getCause()) {
+            if (cur instanceof SocketTimeoutException) {
+                return true;
+            }
+        }
+        return false;
     }
 }

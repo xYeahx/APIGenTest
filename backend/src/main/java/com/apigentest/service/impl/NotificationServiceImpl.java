@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.UserContext;
 import com.apigentest.entity.Notification;
 import com.apigentest.mapper.ExecutionMapper;
@@ -76,7 +77,7 @@ public class NotificationServiceImpl implements NotificationService {
     public void markRead(Long id) {
         Notification n = notificationMapper.selectById(id);
         if (n == null || !n.getUserId().equals(UserContext.getUserId())) {
-            throw new BusinessException(404, "通知不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "通知不存在");
         }
         if (n.getIsRead() == null || n.getIsRead() == 0) {
             n.setIsRead(1);

@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.LlmCallException;
 import com.apigentest.entity.Execution;
 import com.apigentest.entity.ExecutionDetail;
@@ -78,12 +79,12 @@ public class FailureAnalysisServiceImpl implements FailureAnalysisService {
     public FailureAnalysisVO analyze(Long detailId) {
         ExecutionDetail detail = requireDetail(detailId, ProjectService.LEVEL_WRITE);
         if (detail.getStatus() == null || detail.getStatus() == 1) {
-            throw new BusinessException(400, "仅失败或异常的用例支持归因分析");
+            throw new BusinessException(ErrorCode.ILLEGAL_STATE, "仅失败或异常的用例支持归因分析");
         }
         TestCase tc = detail.getCaseId() == null ? null : testCaseMapper.selectById(detail.getCaseId());
         String apiKey = llmConfigService.getApiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            throw new BusinessException(400, "尚未配置 LLM API Key，请先在「系统设置」中完成配置");
+            throw new BusinessException(ErrorCode.LLM_NOT_CONFIGURED, "尚未配置 LLM API Key，请先在「系统设置」中完成配置");
         }
         String model = llmConfigService.getModel();
         String baseUrl = llmConfigService.getBaseUrl();
@@ -106,7 +107,7 @@ public class FailureAnalysisServiceImpl implements FailureAnalysisService {
             }
         }
         if (result == null) {
-            throw new BusinessException(500, "归因分析失败（已重试 " + maxRetry + " 次）："
+            throw new BusinessException(ErrorCode.LLM_CALL_FAILED, "归因分析失败（已重试 " + maxRetry + " 次）："
                     + (last == null ? "未知错误" : last.getMessage()));
         }
 
@@ -147,14 +148,14 @@ public class FailureAnalysisServiceImpl implements FailureAnalysisService {
     public FailureAnalysisVO confirm(Long id, String category) {
         FailureAnalysis fa = failureAnalysisMapper.selectById(id);
         if (fa == null) {
-            throw new BusinessException(404, "归因记录不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "归因记录不存在");
         }
         requireDetail(fa.getExecutionDetailId(), ProjectService.LEVEL_WRITE);
         String confirmedCategory = fa.getCategory();
         if (category != null && !category.isBlank()) {
             String c = category.trim();
             if (!CATEGORIES.contains(c)) {
-                throw new BusinessException(400, "修正分类仅支持 assert_error/data_error/env_error/real_defect");
+                throw new BusinessException(ErrorCode.PARAM_INVALID, "修正分类仅支持 assert_error/data_error/env_error/real_defect");
             }
             confirmedCategory = c;
         }
@@ -172,11 +173,11 @@ public class FailureAnalysisServiceImpl implements FailureAnalysisService {
     private ExecutionDetail requireDetail(Long detailId, int level) {
         ExecutionDetail detail = detailMapper.selectById(detailId);
         if (detail == null) {
-            throw new BusinessException(404, "执行明细不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "执行明细不存在");
         }
         Execution execution = executionMapper.selectById(detail.getExecutionId());
         if (execution == null) {
-            throw new BusinessException(404, "执行记录不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "执行记录不存在");
         }
         projectService.requireAccess(execution.getProjectId(), level);
         return detail;

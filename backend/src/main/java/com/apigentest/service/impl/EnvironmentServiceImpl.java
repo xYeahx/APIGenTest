@@ -1,4 +1,5 @@
 package com.apigentest.service.impl;
+import com.apigentest.common.ErrorCode;
 
 import com.apigentest.common.BusinessException;
 import com.apigentest.dto.EnvironmentDTO;
@@ -67,7 +68,7 @@ public class EnvironmentServiceImpl implements EnvironmentService {
     private Environment getOwnedEnvironment(Long id) {
         Environment env = environmentMapper.selectById(id);
         if (env == null) {
-            throw new BusinessException(404, "环境不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "环境不存在");
         }
         projectService.requireWrite(env.getProjectId());
         return env;
@@ -80,7 +81,7 @@ public class EnvironmentServiceImpl implements EnvironmentService {
         try {
             objectMapper.readTree(variables);
         } catch (Exception e) {
-            throw new BusinessException(400, "环境变量必须是合法的 JSON");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "环境变量必须是合法的 JSON");
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.UserContext;
 import com.apigentest.dto.MemberDTO;
 import com.apigentest.dto.ProjectDTO;
@@ -168,7 +169,7 @@ public class ProjectServiceImpl implements ProjectService {
     public Project requireAccess(Long id, int level) {
         Project project = requireProject(id);
         if (userProjectLevel(UserContext.getUserId(), project) < level) {
-            throw new BusinessException(403, "无权访问该项目");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权访问该项目");
         }
         return project;
     }
@@ -177,7 +178,7 @@ public class ProjectServiceImpl implements ProjectService {
     public Project requireProject(Long id) {
         Project project = projectMapper.selectById(id);
         if (project == null) {
-            throw new BusinessException(404, "项目不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "项目不存在");
         }
         return project;
     }
@@ -234,29 +235,29 @@ public class ProjectServiceImpl implements ProjectService {
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getUsername, dto.getUsername().trim()));
         if (user == null) {
-            throw new BusinessException(404, "用户不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "用户不存在");
         }
         if (user.getStatus() != null && user.getStatus() == 0) {
-            throw new BusinessException(400, "该用户已被禁用，无法邀请");
+            throw new BusinessException(ErrorCode.ILLEGAL_STATE, "该用户已被禁用，无法邀请");
         }
         if (user.getRole() != null && user.getRole() >= 2) {
-            throw new BusinessException(400, "管理员/超级管理员可访问所有项目，无需邀请");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "管理员/超级管理员可访问所有项目，无需邀请");
         }
         if (user.getId().equals(project.getOwnerId())) {
-            throw new BusinessException(400, "项目创建人默认为所有者，无需邀请");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "项目创建人默认为所有者，无需邀请");
         }
         if (user.getId().equals(UserContext.getUserId())) {
-            throw new BusinessException(400, "不能邀请自己");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "不能邀请自己");
         }
         Integer role = dto.getRole();
         if (role == null || (role != 1 && role != 2)) {
-            throw new BusinessException(400, "角色仅支持 1=成员 / 2=只读成员");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "角色仅支持 1=成员 / 2=只读成员");
         }
         Long exist = memberMapper.selectCount(new LambdaQueryWrapper<ProjectMember>()
                 .eq(ProjectMember::getProjectId, projectId)
                 .eq(ProjectMember::getUserId, user.getId()));
         if (exist != null && exist > 0) {
-            throw new BusinessException(400, "该用户已是项目成员");
+            throw new BusinessException(ErrorCode.CONFLICT, "该用户已是项目成员");
         }
         ProjectMember pm = new ProjectMember();
         pm.setProjectId(projectId);
@@ -278,7 +279,7 @@ public class ProjectServiceImpl implements ProjectService {
         getOwnedProject(pm.getProjectId());
         Integer role = dto.getRole();
         if (role == null || (role != 1 && role != 2)) {
-            throw new BusinessException(400, "角色仅支持 1=成员 / 2=只读成员");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "角色仅支持 1=成员 / 2=只读成员");
         }
         pm.setRole(role);
         memberMapper.updateById(pm);
@@ -296,7 +297,7 @@ public class ProjectServiceImpl implements ProjectService {
     private ProjectMember requireMember(Long memberId) {
         ProjectMember pm = memberMapper.selectById(memberId);
         if (pm == null) {
-            throw new BusinessException(404, "成员记录不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "成员记录不存在");
         }
         return pm;
     }

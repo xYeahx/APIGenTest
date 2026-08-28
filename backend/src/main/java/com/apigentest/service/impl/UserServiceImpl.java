@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.Roles;
 import com.apigentest.common.JwtUtil;
 import com.apigentest.common.UserContext;
@@ -58,7 +59,7 @@ public class UserServiceImpl implements UserService {
         Long count = userMapper.selectCount(
                 new LambdaQueryWrapper<User>().eq(User::getUsername, dto.getUsername()));
         if (count != null && count > 0) {
-            throw new BusinessException(400, "用户名已存在");
+            throw new BusinessException(ErrorCode.CONFLICT, "用户名已存在");
         }
         User user = new User();
         user.setUsername(dto.getUsername());
@@ -82,10 +83,10 @@ public class UserServiceImpl implements UserService {
                 .eq(SysConfig::getConfigKey, "super_admin_invite_code"));
         String expected = config == null ? null : config.getConfigValue();
         if (expected == null || expected.isBlank()) {
-            throw new BusinessException(400, "系统暂未开放超级管理员注册");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "系统暂未开放超级管理员注册");
         }
         if (!constantTimeEquals(expected.trim(), inviteCode.trim())) {
-            throw new BusinessException(400, "注册码不正确");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "注册码不正确");
         }
         return Roles.SUPER_ADMIN;
     }
@@ -105,10 +106,10 @@ public class UserServiceImpl implements UserService {
         User user = userMapper.selectOne(
                 new LambdaQueryWrapper<User>().eq(User::getUsername, dto.getUsername()));
         if (user == null || !passwordEncoder.matches(dto.getPassword(), user.getPassword())) {
-            throw new BusinessException(400, "用户名或密码错误");
+            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS, "用户名或密码错误");
         }
         if (user.getStatus() != null && user.getStatus() == 0) {
-            throw new BusinessException(403, "账号已被禁用，请联系管理员");
+            throw new BusinessException(ErrorCode.ACCOUNT_DISABLED, "账号已被禁用，请联系管理员");
         }
         LoginVO vo = new LoginVO();
         vo.setToken(jwtUtil.generateToken(user.getId(), user.getUsername()));
@@ -120,11 +121,11 @@ public class UserServiceImpl implements UserService {
     public UserVO getCurrentUser() {
         Long userId = UserContext.getUserId();
         if (userId == null) {
-            throw new BusinessException(401, "未登录");
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
         }
         User user = userMapper.selectById(userId);
         if (user == null) {
-            throw new BusinessException(401, "用户不存在");
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "用户不存在");
         }
         return toVO(user);
     }
@@ -144,14 +145,14 @@ public class UserServiceImpl implements UserService {
     public String uploadAvatar(MultipartFile file) {
         User user = requireCurrentUser();
         if (file == null || file.isEmpty()) {
-            throw new BusinessException(400, "请选择图片文件");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "请选择图片文件");
         }
         if (file.getSize() > MAX_AVATAR_SIZE) {
-            throw new BusinessException(400, "头像大小不能超过 2MB");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "头像大小不能超过 2MB");
         }
         String contentType = file.getContentType();
         if (contentType == null || !ALLOWED_TYPES.contains(contentType)) {
-            throw new BusinessException(400, "仅支持 jpg / png / webp / gif 图片");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "仅支持 jpg / png / webp / gif 图片");
         }
         String ext = switch (contentType) {
             case "image/png" -> "png";
@@ -163,10 +164,10 @@ public class UserServiceImpl implements UserService {
         try {
             data = file.getBytes();
         } catch (IOException e) {
-            throw new BusinessException(500, "图片读取失败");
+            throw new BusinessException(ErrorCode.IO_ERROR, "图片读取失败");
         }
         if (!matchMagic(data, ext)) {
-            throw new BusinessException(400, "文件内容不是有效的图片");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "文件内容不是有效的图片");
         }
         try {
             String sub = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
@@ -179,7 +180,7 @@ public class UserServiceImpl implements UserService {
             userMapper.updateById(user);
             return url;
         } catch (IOException e) {
-            throw new BusinessException(500, "头像保存失败：" + e.getMessage());
+            throw new BusinessException(ErrorCode.IO_ERROR, "头像保存失败：" + e.getMessage());
         }
     }
 
@@ -201,11 +202,11 @@ public class UserServiceImpl implements UserService {
     private User requireCurrentUser() {
         Long userId = UserContext.getUserId();
         if (userId == null) {
-            throw new BusinessException(401, "未登录");
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
         }
         User user = userMapper.selectById(userId);
         if (user == null) {
-            throw new BusinessException(401, "用户不存在");
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "用户不存在");
         }
         return user;
     }

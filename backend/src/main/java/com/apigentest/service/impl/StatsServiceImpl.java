@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.Roles;
 import com.apigentest.common.UserContext;
 import com.apigentest.entity.ApiInfo;
@@ -248,7 +249,7 @@ public class StatsServiceImpl implements StatsService {
     private void requireStatsAccess(Long projectId) {
         if (projectId == null) {
             if (!Roles.isAdmin(UserContext.getRole())) {
-                throw new BusinessException(403, "仅管理员可查看全局实验统计");
+                throw new BusinessException(ErrorCode.FORBIDDEN, "仅管理员可查看全局实验统计");
             }
         } else {
             projectService.requireRead(projectId);

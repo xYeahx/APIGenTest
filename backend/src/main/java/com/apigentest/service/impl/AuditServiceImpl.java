@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.Roles;
 import com.apigentest.common.UserContext;
 import com.apigentest.entity.AuditLog;
@@ -46,7 +47,7 @@ public class AuditServiceImpl implements AuditService {
     public Page<AuditLog> list(long page, long size, String action) {
         Integer role = UserContext.getRole();
         if (!Roles.isAdmin(role)) {
-            throw new BusinessException(403, "仅管理员或超级管理员可查看审计日志");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "仅管理员或超级管理员可查看审计日志");
         }
         LambdaQueryWrapper<AuditLog> wrapper = new LambdaQueryWrapper<AuditLog>()
                 .orderByDesc(AuditLog::getId);

@@ -23,6 +23,11 @@ public class GlobalExceptionHandler {
         return Result.fail(e.getCode(), e.getMessage());
     }
 
+    @ExceptionHandler(LlmCallException.class)
+    public Result<Void> handleLlmCallException(LlmCallException e) {
+        return Result.fail(e.getErrorCode().getCode(), e.getMessage());
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public Result<Void> handleValidException(MethodArgumentNotValidException e) {
         FieldError fieldError = e.getBindingResult().getFieldError();

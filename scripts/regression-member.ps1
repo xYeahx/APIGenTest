@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Continue'
+$ErrorActionPreference = 'Continue'
 $base = 'http://127.0.0.1:8081/api'
 $results = New-Object System.Collections.Generic.List[string]
 $failCount = 0
@@ -44,11 +44,11 @@ Check 'invite member(role=1)' ($r1.ok -and $r1.code -eq 0) $r1.message
 $r2 = Call-Api 'POST' ("/projects/" + $projId + "/members") @{ username = $uC; role = 2 } $tA
 Check 'invite readonly(role=2)' ($r2.ok -and $r2.code -eq 0) $r2.message
 $r3 = Call-Api 'POST' ("/projects/" + $projId + "/members") @{ username = 'nobody' + $ts; role = 1 } $tA
-Check 'invite nonexist -> 404' ($r3.code -eq 404) ("code=" + $r3.code)
+Check 'invite nonexist -> 20002' ($r3.code -eq 20002) ("code=" + $r3.code)
 $r4 = Call-Api 'POST' ("/projects/" + $projId + "/members") @{ username = $uA; role = 1 } $tA
-Check 'invite owner -> 400' ($r4.code -eq 400) ("code=" + $r4.code)
+Check 'invite owner -> 20001' ($r4.code -eq 20001) ("code=" + $r4.code)
 $r5 = Call-Api 'POST' ("/projects/" + $projId + "/members") @{ username = $uB; role = 1 } $tA
-Check 'duplicate invite -> 400' ($r5.code -eq 400) ("code=" + $r5.code)
+Check 'duplicate invite -> 40002' ($r5.code -eq 40002) ("code=" + $r5.code)
 
 $list = Call-Api 'GET' ("/projects/" + $projId + "/members") $null $tA
 $roles = @($list.data | ForEach-Object { $_.role })
@@ -67,16 +67,16 @@ Check 'B read project myRole=1' ($d1.ok -and $d1.data.myRole -eq 1) ("myRole=" +
 $w1 = Call-Api 'POST' ("/projects/" + $projId + "/environments") @{ name = 'test-env'; baseUrl = 'http://127.0.0.1:8080' } $tB
 Check 'B write environment' ($w1.ok -and $w1.code -eq 0) $w1.message
 $m1 = Call-Api 'PUT' ("/projects/" + $projId) @{ name = 'rename-test'; description = '' } $tB
-Check 'B edit project -> 403' ($m1.code -eq 403) ("code=" + $m1.code)
+Check 'B edit project -> 30002' ($m1.code -eq 30002) ("code=" + $m1.code)
 $m2 = Call-Api 'POST' ("/projects/" + $projId + "/members") @{ username = $uD; role = 1 } $tB
-Check 'B invite member -> 403' ($m2.code -eq 403) ("code=" + $m2.code)
+Check 'B invite member -> 30002' ($m2.code -eq 30002) ("code=" + $m2.code)
 
 $d2 = Call-Api 'GET' ("/projects/" + $projId) $null $tC
 Check 'C read project myRole=2' ($d2.ok -and $d2.data.myRole -eq 2) ("myRole=" + $d2.data.myRole)
 $w2 = Call-Api 'POST' ("/projects/" + $projId + "/environments") @{ name = 'ro-try'; baseUrl = 'http://x' } $tC
-Check 'C write environment -> 403' ($w2.code -eq 403) ("code=" + $w2.code)
+Check 'C write environment -> 30002' ($w2.code -eq 30002) ("code=" + $w2.code)
 $run = Call-Api 'POST' '/executions/run' @{ projectId = $projId; environmentId = $null; scope = @{ type = 'all' } } $tC
-Check 'C run execution -> 403' ($run.code -eq 403) ("code=" + $run.code)
+Check 'C run execution -> 30002' ($run.code -eq 30002) ("code=" + $run.code)
 
 $plB = Call-Api 'GET' '/projects' $null $tB
 $pB = @($plB.data | Where-Object { $_.id -eq $projId })
@@ -86,7 +86,7 @@ $pC = @($plC.data | Where-Object { $_.id -eq $projId })
 Check 'C project list myRole=2' ($pC.Count -eq 1 -and $pC[0].myRole -eq 2) ("myRole=" + $pC[0].myRole)
 
 $d4 = Call-Api 'GET' ("/projects/" + $projId) $null $tD
-Check 'outsider read -> 403' ($d4.code -eq 403) ("code=" + $d4.code)
+Check 'outsider read -> 30002' ($d4.code -eq 30002) ("code=" + $d4.code)
 
 $mc = $list2.data | Where-Object { $_.username -eq $uC } | Select-Object -First 1
 $r7 = Call-Api 'DELETE' ("/members/" + $mc.id) $null $tA

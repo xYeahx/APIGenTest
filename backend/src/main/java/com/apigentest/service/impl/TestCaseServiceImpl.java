@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.UserContext;
 import com.apigentest.dto.CaseDTO;
 import com.apigentest.dto.CaseQuery;
@@ -178,7 +179,7 @@ public class TestCaseServiceImpl implements TestCaseService {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new BusinessException(500, "导出失败：" + e.getMessage());
+            throw new BusinessException(ErrorCode.IO_ERROR, "导出失败：" + e.getMessage());
         }
     }
 
@@ -187,19 +188,19 @@ public class TestCaseServiceImpl implements TestCaseService {
     public ImportResultVO importCases(Long projectId, MultipartFile file) {
         projectService.requireWrite(projectId);
         if (file == null || file.isEmpty()) {
-            throw new BusinessException(400, "文件不能为空");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "文件不能为空");
         }
         String content;
         try {
             content = new String(file.getBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new BusinessException(500, "文件读取失败");
+            throw new BusinessException(ErrorCode.IO_ERROR, "文件读取失败");
         }
         JsonNode root;
         try {
             root = objectMapper.readTree(content);
         } catch (Exception e) {
-            throw new BusinessException(400, "不是合法的 JSON 文件");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "不是合法的 JSON 文件");
         }
         List<TestCase> toInsert = new ArrayList<>();
         if (root.isArray()) {
@@ -213,10 +214,10 @@ public class TestCaseServiceImpl implements TestCaseService {
         } else if (root.has("item") && root.get("item").isArray()) {
             collectPostmanItems(projectId, root.get("item"), "", toInsert);
         } else {
-            throw new BusinessException(400, "无法识别文件格式（支持 Postman Collection 或平台导出的 JSON）");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "无法识别文件格式（支持 Postman Collection 或平台导出的 JSON）");
         }
         if (toInsert.isEmpty()) {
-            throw new BusinessException(400, "文件中未解析到任何用例");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "文件中未解析到任何用例");
         }
         Map<String, ApiInfo> pathIndex = buildPathIndex(projectId);
         int saved = 0;
@@ -424,7 +425,7 @@ public class TestCaseServiceImpl implements TestCaseService {
         tc.setScenarioType(text(n.get("scenarioType"), "manual"));
         String method = text(n.get("method"), "GET").toUpperCase();
         if (!METHODS.contains(method)) {
-            throw new BusinessException(400, "不支持的请求方法：" + method);
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "不支持的请求方法：" + method);
         }
         tc.setMethod(method);
         tc.setUrlTemplate(text(n.get("urlTemplate"), ""));
@@ -806,7 +807,7 @@ def _extract_vars(extract, headers, body):
     private TestCase getOwnedCase(Long id, int level) {
         TestCase tc = testCaseMapper.selectById(id);
         if (tc == null) {
-            throw new BusinessException(404, "用例不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "用例不存在");
         }
         projectService.requireAccess(tc.getProjectId(), level);
         return tc;
@@ -814,10 +815,10 @@ def _extract_vars(extract, headers, body):
 
     private void validate(CaseDTO dto, Long projectId) {
         if (!SCENARIO_TYPES.contains(dto.getScenarioType())) {
-            throw new BusinessException(400, "场景类型仅支持 normal / boundary / exception / manual");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "场景类型仅支持 normal / boundary / exception / manual");
         }
         if (!METHODS.contains(dto.getMethod().toUpperCase())) {
-            throw new BusinessException(400, "不支持的请求方法：" + dto.getMethod());
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "不支持的请求方法：" + dto.getMethod());
         }
         validateJson("请求头 headers", dto.getHeaders());
         validateJson("查询参数 queryParams", dto.getQueryParams());
@@ -827,13 +828,13 @@ def _extract_vars(extract, headers, body):
         if (dto.getApiId() != null) {
             ApiInfo api = apiInfoMapper.selectById(dto.getApiId());
             if (api == null || !api.getProjectId().equals(projectId)) {
-                throw new BusinessException(400, "关联接口不存在或不属于该项目");
+                throw new BusinessException(ErrorCode.NOT_FOUND, "关联接口不存在或不属于该项目");
             }
         }
         if (dto.getPreCaseId() != null) {
             TestCase pre = testCaseMapper.selectById(dto.getPreCaseId());
             if (pre == null || !pre.getProjectId().equals(projectId)) {
-                throw new BusinessException(400, "前置用例不存在或不属于该项目");
+                throw new BusinessException(ErrorCode.NOT_FOUND, "前置用例不存在或不属于该项目");
             }
         }
     }
@@ -845,7 +846,7 @@ def _extract_vars(extract, headers, body):
         try {
             objectMapper.readTree(value);
         } catch (Exception e) {
-            throw new BusinessException(400, fieldName + " 必须是合法的 JSON");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, fieldName + " 必须是合法的 JSON");
         }
     }
 

@@ -33,7 +33,7 @@ request.interceptors.response.use(
     if (res.code === 0) {
       return res.data
     }
-    if (res.code === 401) {
+    if (res.code === 30001) {
       ElMessage.error('登录已过期，请重新登录')
       redirectToLogin()
       return Promise.reject(new Error(res.message || '未登录'))

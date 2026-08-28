@@ -1,4 +1,4 @@
-﻿param([string]$Base = 'http://127.0.0.1:8081')
+param([string]$Base = 'http://127.0.0.1:8081')
 $ErrorActionPreference = 'Continue'
 $root = 'E:\GuaduationProject\APIGenTest\scripts'
 $base = $Base
@@ -205,7 +205,7 @@ SELECT COUNT(*) AS gen_rec FROM generation_record WHERE project_id = @pid;
         try {
             $resp = Invoke-WebRequest -Uri "$base/api/stats/generation-quality" -Headers $uAuth -Method Get -UseBasicParsing
             $parsed = $resp.Content | ConvertFrom-Json
-            $denied = $parsed.code -eq 403
+            $denied = $parsed.code -eq 30002
         } catch {
             $denied = $true
         }

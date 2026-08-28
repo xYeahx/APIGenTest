@@ -1,4 +1,5 @@
 package com.apigentest.service.impl;
+import com.apigentest.common.ErrorCode;
 
 import com.apigentest.common.BusinessException;
 import com.apigentest.common.UserContext;
@@ -161,10 +162,10 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
     public Long runNow(Long id) {
         ScheduledTask task = requireOwnedTask(id);
         if (task.getEnabled() == null || task.getEnabled() != 1) {
-            throw new BusinessException(400, "任务已停用，请先启用");
+            throw new BusinessException(ErrorCode.ILLEGAL_STATE, "任务已停用，请先启用");
         }
         if (!runningIds.add(id)) {
-            throw new BusinessException(400, "任务正在执行中，请稍后再试");
+            throw new BusinessException(ErrorCode.ILLEGAL_STATE, "任务正在执行中，请稍后再试");
         }
         try {
             return trigger(task);
@@ -264,7 +265,7 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
     private ScheduledTask requireOwnedTask(Long id) {
         ScheduledTask task = taskMapper.selectById(id);
         if (task == null) {
-            throw new BusinessException(404, "定时任务不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "定时任务不存在");
         }
         projectService.requireWrite(task.getProjectId());
         return task;
@@ -273,14 +274,14 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
     private Environment requireEnv(Long projectId, Long envId) {
         Environment env = environmentMapper.selectById(envId);
         if (env == null || !env.getProjectId().equals(projectId)) {
-            throw new BusinessException(400, "执行环境不存在或不属于该项目");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "执行环境不存在或不属于该项目");
         }
         return env;
     }
 
     private String normalizeAndValidateCron(String cron) {
         if (cron == null || cron.isBlank()) {
-            throw new BusinessException(400, "cron 表达式不能为空");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "cron 表达式不能为空");
         }
         String t = cron.trim();
         int parts = t.split("\\s+").length;
@@ -290,14 +291,14 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         try {
             CronExpression.parse(t);
         } catch (IllegalArgumentException e) {
-            throw new BusinessException(400, "cron 表达式无效：" + e.getMessage());
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "cron 表达式无效：" + e.getMessage());
         }
         return t;
     }
 
     private String serializeScope(ScopeDTO scope) {
         if (scope == null || scope.getType() == null || scope.getType().isBlank()) {
-            throw new BusinessException(400, "执行范围不能为空");
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "执行范围不能为空");
         }
         String type = scope.getType().trim();
         if ("all".equals(type)) {
@@ -305,15 +306,15 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         }
         if ("caseIds".equals(type)) {
             if (scope.getCaseIds() == null || scope.getCaseIds().isEmpty()) {
-                throw new BusinessException(400, "请选择要执行的用例");
+                throw new BusinessException(ErrorCode.PARAM_INVALID, "请选择要执行的用例");
             }
             try {
                 return objectMapper.writeValueAsString(Map.of("type", "caseIds", "caseIds", scope.getCaseIds()));
             } catch (JsonProcessingException e) {
-                throw new BusinessException(400, "执行范围序列化失败");
+                throw new BusinessException(ErrorCode.PARAM_INVALID, "执行范围序列化失败");
             }
         }
-        throw new BusinessException(400, "不支持的执行范围类型：" + type);
+        throw new BusinessException(ErrorCode.PARAM_INVALID, "不支持的执行范围类型：" + type);
     }
 
     private ScopeDTO parseScope(String filter) {
@@ -332,7 +333,7 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
             }
             return scope;
         } catch (Exception e) {
-            throw new BusinessException(500, "任务执行范围解析失败");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "任务执行范围解析失败");
         }
     }
 

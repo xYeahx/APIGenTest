@@ -1,6 +1,7 @@
 package com.apigentest.service.impl;
 
 import com.apigentest.common.BusinessException;
+import com.apigentest.common.ErrorCode;
 import com.apigentest.common.UserContext;
 import com.apigentest.dto.DebugRunDTO;
 import com.apigentest.dto.RunRequestDTO;
@@ -112,11 +113,11 @@ public class ExecutionServiceImpl implements ExecutionService {
     private Long doRun(RunRequestDTO dto, int triggerType, Long operatorId, Consumer<Long> onFinished) {
         Environment env = environmentMapper.selectById(dto.getEnvironmentId());
         if (env == null || !env.getProjectId().equals(dto.getProjectId())) {
-            throw new BusinessException(400, "执行环境不存在或不属于该项目");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "执行环境不存在或不属于该项目");
         }
         List<TestCase> cases = resolveCases(dto.getProjectId(), dto.getScope());
         if (cases.isEmpty()) {
-            throw new BusinessException(400, "没有可执行的启用用例，请先创建并启用用例");
+            throw new BusinessException(ErrorCode.ILLEGAL_STATE, "没有可执行的启用用例，请先创建并启用用例");
         }
         List<TestCase> ordered = topoSort(cases);
 
@@ -218,19 +219,19 @@ public class ExecutionServiceImpl implements ExecutionService {
             case "caseIds": {
                 List<Long> ids = scope.getCaseIds();
                 if (ids == null || ids.isEmpty()) {
-                    throw new BusinessException(400, "请选择要执行的用例");
+                    throw new BusinessException(ErrorCode.PARAM_INVALID, "请选择要执行的用例");
                 }
                 wrapper.in(TestCase::getId, ids);
                 List<TestCase> list = testCaseMapper.selectList(wrapper);
                 if (list.size() != ids.size()) {
-                    throw new BusinessException(400, "部分用例不存在或已禁用");
+                    throw new BusinessException(ErrorCode.ILLEGAL_STATE, "部分用例不存在或已禁用");
                 }
                 return list;
             }
             case "apiIds": {
                 List<Long> apiIds = scope.getApiIds();
                 if (apiIds == null || apiIds.isEmpty()) {
-                    throw new BusinessException(400, "请选择要执行的接口");
+                    throw new BusinessException(ErrorCode.PARAM_INVALID, "请选择要执行的接口");
                 }
                 wrapper.in(TestCase::getApiId, apiIds);
                 return testCaseMapper.selectList(wrapper);
@@ -238,7 +239,7 @@ public class ExecutionServiceImpl implements ExecutionService {
             case "all":
                 return testCaseMapper.selectList(wrapper);
             default:
-                throw new BusinessException(400, "不支持的执行范围类型：" + type);
+                throw new BusinessException(ErrorCode.PARAM_INVALID, "不支持的执行范围类型：" + type);
         }
     }
 
@@ -261,7 +262,7 @@ public class ExecutionServiceImpl implements ExecutionService {
             return;
         }
         if (visiting.contains(tc.getId())) {
-            throw new BusinessException(400, "用例前置依赖存在循环，无法执行");
+            throw new BusinessException(ErrorCode.ILLEGAL_STATE, "用例前置依赖存在循环，无法执行");
         }
         visiting.add(tc.getId());
         if (tc.getPreCaseId() != null) {
@@ -301,12 +302,12 @@ public class ExecutionServiceImpl implements ExecutionService {
     public ExecutionDetailVO debugRun(Long caseId, DebugRunDTO dto) {
         TestCase tc = testCaseMapper.selectById(caseId);
         if (tc == null) {
-            throw new BusinessException(404, "用例不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "用例不存在");
         }
         projectService.requireWrite(tc.getProjectId());
         Environment env = environmentMapper.selectById(dto.getEnvironmentId());
         if (env == null || !env.getProjectId().equals(tc.getProjectId())) {
-            throw new BusinessException(400, "执行环境不存在或不属于该项目");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "执行环境不存在或不属于该项目");
         }
         TestCase effective = cloneForDebug(tc, dto);
 
@@ -410,7 +411,7 @@ public class ExecutionServiceImpl implements ExecutionService {
         if (!fullUrl.startsWith("http://") && !fullUrl.startsWith("https://")) {
             String base = env.getBaseUrl();
             if (base == null || base.isBlank()) {
-                throw new BusinessException(500, "环境未配置 baseUrl，无法执行相对地址用例");
+                throw new BusinessException(ErrorCode.ENV_NOT_CONFIGURED, "环境未配置 baseUrl，无法执行相对地址用例");
             }
             fullUrl = base + (urlTemplate.startsWith("/") ? urlTemplate : "/" + urlTemplate);
         }
@@ -690,7 +691,7 @@ public class ExecutionServiceImpl implements ExecutionService {
         getOwnedExecution(executionId);
         ExecutionDetail d = detailMapper.selectById(detailId);
         if (d == null || !d.getExecutionId().equals(executionId)) {
-            throw new BusinessException(404, "执行明细不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "执行明细不存在");
         }
         TestCase tc = testCaseMapper.selectById(d.getCaseId());
         return toDetailVO(d, tc == null ? Map.of() : Map.of(tc.getId(), tc));
@@ -699,7 +700,7 @@ public class ExecutionServiceImpl implements ExecutionService {
     private Execution getOwnedExecution(Long id) {
         Execution execution = executionMapper.selectById(id);
         if (execution == null) {
-            throw new BusinessException(404, "执行记录不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "执行记录不存在");
         }
         projectService.requireRead(execution.getProjectId());
         return execution;
